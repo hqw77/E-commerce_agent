@@ -107,11 +107,67 @@ type UserConversationState = {
   resumeResult?: ChatResumeResponse;
 };
 
+type PersistedState = {
+  selectedUserId?: string;
+  users?: DemoUser[];
+  conversations?: Record<string, UserConversationState>;
+};
+
+const CONVERSATIONS_STORAGE_KEY = "agent-debug-conversations-v1";
+const MAX_PERSISTED_MESSAGES = 100;
+const MAX_PERSISTED_TRACES = 200;
+
 function createConversationState(userId: string): UserConversationState {
   return {
     sessionId: `session-${userId}-${Math.random().toString(36).slice(2, 10)}`,
     messages: initialConversationMessages[userId]?.map((message) => ({ ...message })) ?? [welcomeMessage],
     traceEvents: [],
+  };
+}
+
+function loadPersistedState(): PersistedState {
+  try {
+    const raw = window.localStorage.getItem(CONVERSATIONS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as PersistedState;
+    if (!parsed || typeof parsed !== "object") return {};
+    const conversations =
+      parsed.conversations && typeof parsed.conversations === "object" ? parsed.conversations : {};
+    return {
+      selectedUserId: typeof parsed.selectedUserId === "string" ? parsed.selectedUserId : undefined,
+      users: Array.isArray(parsed.users)
+        ? parsed.users.filter(
+            (user): user is DemoUser =>
+              Boolean(user && typeof user === "object" && user.profile && typeof user.profile.userId === "string"),
+          )
+        : undefined,
+      conversations,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function mergeUsers(base: DemoUser[], stored?: DemoUser[]): DemoUser[] {
+  if (!stored?.length) return base;
+  const byId = new Map(base.map((user) => [user.profile.userId, user]));
+  stored.forEach((user) => byId.set(user.profile.userId, user));
+  return [...byId.values()];
+}
+
+function restoreConversation(userId: string, stored: Record<string, UserConversationState>): UserConversationState {
+  const value = stored[userId];
+  if (!value || typeof value !== "object" || typeof value.sessionId !== "string" || !Array.isArray(value.messages)) {
+    return createConversationState(userId);
+  }
+  return {
+    sessionId: value.sessionId,
+    messages: value.messages.length ? value.messages : [welcomeMessage],
+    activeResponse: value.activeResponse,
+    traceEvents: Array.isArray(value.traceEvents)
+      ? value.traceEvents.slice(-MAX_PERSISTED_TRACES)
+      : [],
+    resumeResult: value.resumeResult,
   };
 }
 
@@ -150,13 +206,23 @@ async function loadCourseRuntimeContext(userId: string): Promise<Record<string, 
 }
 
 export function useAgentChat() {
-  const [users, setUsers] = useState<DemoUser[]>(initialUsers);
-  const [selectedUserId, setSelectedUserId] = useState(initialUsers[0].profile.userId);
-  const [conversationByUser, setConversationByUser] = useState<Record<string, UserConversationState>>(() =>
-    Object.fromEntries(
-      initialUsers.map((user) => [user.profile.userId, createConversationState(user.profile.userId)]),
-    ),
-  );
+  const [bootState] = useState<PersistedState>(() => loadPersistedState());
+  const [users, setUsers] = useState<DemoUser[]>(() => mergeUsers(initialUsers, bootState.users));
+  const [selectedUserId, setSelectedUserId] = useState(() => {
+    const restoredUsers = mergeUsers(initialUsers, bootState.users);
+    const candidate = bootState.selectedUserId;
+    if (candidate && restoredUsers.some((user) => user.profile.userId === candidate)) {
+      return candidate;
+    }
+    return restoredUsers[0]?.profile.userId ?? initialUsers[0].profile.userId;
+  });
+  const [conversationByUser, setConversationByUser] = useState<Record<string, UserConversationState>>(() => {
+    const restoredUsers = mergeUsers(initialUsers, bootState.users);
+    const stored = bootState.conversations ?? {};
+    return Object.fromEntries(
+      restoredUsers.map((user) => [user.profile.userId, restoreConversation(user.profile.userId, stored)]),
+    );
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [isResuming, setIsResuming] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
@@ -209,6 +275,28 @@ export function useAgentChat() {
       isActive = false;
     };
   }, []);
+
+  useEffect(() => {
+    const snapshot: PersistedState = {
+      selectedUserId,
+      users,
+      conversations: Object.fromEntries(
+        Object.entries(conversationByUser).map(([userId, conversation]) => [
+          userId,
+          {
+            ...conversation,
+            messages: conversation.messages.slice(-MAX_PERSISTED_MESSAGES),
+            traceEvents: conversation.traceEvents.slice(-MAX_PERSISTED_TRACES),
+          },
+        ]),
+      ),
+    };
+    try {
+      window.localStorage.setItem(CONVERSATIONS_STORAGE_KEY, JSON.stringify(snapshot));
+    } catch {
+      // localStorage 满了或被禁用时，不阻塞聊天。
+    }
+  }, [users, selectedUserId, conversationByUser]);
 
   function updateActiveConversation(updater: (current: UserConversationState) => UserConversationState) {
     setConversationByUser((current) => {
