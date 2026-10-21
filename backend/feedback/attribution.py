@@ -1,17 +1,17 @@
 """
-用户反馈归因层 —— 把问题绑定到 Trace、Eval 和模块责任。
+用户反馈归因层 -- 把问题绑定到 Trace,Eval 和模块责任.
 
-【这个文件是干什么的】
-质量闭环：用户提交负反馈后，把这次失败「归因」到具体模块（Prompt/RAG/Tool/Context/Workflow），
-并把事故回填成新的回归 case，让同类问题下次自动被测出来。被 api/routes.py 的 /feedback/submit 调用。
+[这个文件是干什么的]
+质量闭环:用户提交负反馈后,把这次失败"归因"到具体模块(Prompt/RAG/Tool/Context/Workflow),
+并把事故回填成新的回归 case,让同类问题下次自动被测出来.被 api/routes.py 的 /feedback/submit 调用.
 
-【核心流程】
-  ① attribute            根据反馈文本 + eval 失败类别，归因到具体模块
-  ② build_backfilled_case 把负反馈沉淀成回归 case（下次自动测）
+[核心流程]
+  ① attribute            根据反馈文本 + eval 失败类别,归因到具体模块
+  ② build_backfilled_case 把负反馈沉淀成回归 case(下次自动测)
 
-【注意】
-本文件实际用到 Any + api.schemas + BACKFILLED_CASES；
-其余 import（json/os/re/datetime/httpx/yaml/fastapi 等 14 个）是模板残留，未使用。
+[注意]
+本文件实际用到 Any + api.schemas + BACKFILLED_CASES;
+其余 import(json/os/re/datetime/httpx/yaml/fastapi 等 14 个)是模板残留,未使用.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from state.session_state import BACKFILLED_CASES
 
 
 class FailureAttributor:
-    """把反馈、trace 和 eval 结果归因到具体模块。"""
+    """把反馈,trace 和 eval 结果归因到具体模块."""
 
     def attribute(
         self,
@@ -44,13 +44,13 @@ class FailureAttributor:
         trace_events: list[TraceEvent],
         eval_result: EvalCaseResult | None,
     ) -> list[FailureAttribution]:
-        """把用户反馈、Trace 和 Eval 失败类别映射到 Prompt、RAG、Tool、Context 或 Workflow。"""
+        """把用户反馈,Trace 和 Eval 失败类别映射到 Prompt,RAG,Tool,Context 或 Workflow."""
         text = f"{feedback.user_comment} {feedback.observed_answer}"
         event_names = [event.event_type for event in trace_events]
         categories = eval_result.failure_categories if eval_result else []
         attributions: list[FailureAttribution] = []
 
-        # 高风险边界被突破（承诺"已退款成功/已到账/跳过审批"）→ Workflow + Prompt 双重归因
+        # 高风险边界被突破(承诺"已退款成功/已到账/跳过审批")-> Workflow + Prompt 双重归因
         if any(term in text for term in ["已退款成功", "已到账", "直接退款", "不用审批", "跳过审批"]):
             attributions.append(
                 FailureAttribution(
@@ -68,7 +68,7 @@ class FailureAttributor:
                     suggested_fix="收紧客服回答边界：只能说明可提交申请或等待人工审批，不能承诺到账。",
                 )
             )
-        # 工具路径不匹配 → Tool
+        # 工具路径不匹配 -> Tool
         if "tool_path_mismatch" in categories or any(term in text for term in ["没查订单", "没查物流", "工具没调用"]):
             attributions.append(
                 FailureAttribution(
@@ -78,7 +78,7 @@ class FailureAttributor:
                     suggested_fix="检查意图路由、工具 schema 和工具调用前参数抽取。",
                 )
             )
-        # 引用缺失 → RAG
+        # 引用缺失 -> RAG
         if "citation_missing" in categories or any(term in text for term in ["没有依据", "引用错了", "政策不对"]):
             attributions.append(
                 FailureAttribution(
@@ -88,7 +88,7 @@ class FailureAttributor:
                     suggested_fix="检查检索 query、metadata、reranker 和 expected_citations。",
                 )
             )
-        # 上下文串台 → Context
+        # 上下文串台 -> Context
         if "session_state_mismatch" in categories or any(term in text for term in ["刚才那个", "VIP", "上下文", "串台"]):
             attributions.append(
                 FailureAttribution(
@@ -98,7 +98,7 @@ class FailureAttributor:
                     suggested_fix="检查 Context Builder 冲突规则、Runtime Context 权威性和 Memory 写入排除。",
                 )
             )
-        # 只有答案信号缺失，无其他证据 → 期望可能过窄
+        # 只有答案信号缺失,无其他证据 -> 期望可能过窄
         if "answer_signal_missing" in categories and not attributions:
             attributions.append(
                 FailureAttribution(
@@ -108,7 +108,7 @@ class FailureAttributor:
                     suggested_fix="复核 case 期望是否过窄，再决定改 Prompt 还是调整测试表达。",
                 )
             )
-        # 兜底：没命中明确规则 → 需要人工分类
+        # 兜底:没命中明确规则 -> 需要人工分类
         if not attributions:
             attributions.append(
                 FailureAttribution(
@@ -126,13 +126,13 @@ def build_backfilled_case(
     attributions: list[FailureAttribution],
     base_case: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """把一次负反馈沉淀成回归 case，让同类问题下次自动被测出来。"""
+    """把一次负反馈沉淀成回归 case,让同类问题下次自动被测出来."""
     case_id = f"feedback-{len(BACKFILLED_CASES) + 1:03d}"
     expected_trace_events = ["cost_recorded"]
     expected_session_state: list[str] = []
     forbidden_text: list[str] = []
     expected_signals = ["跨境电商"]
-    # 归因到 Workflow → 期望走 HITL 审批，禁止出现"已退款成功"等承诺
+    # 归因到 Workflow -> 期望走 HITL 审批,禁止出现"已退款成功"等承诺
     if any(item.module == "Workflow" for item in attributions):
         expected_signals = ["人工审批"]
         expected_trace_events.extend(["workflow_completed", "human_approval_required"])

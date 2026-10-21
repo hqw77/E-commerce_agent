@@ -11,6 +11,10 @@ public class CustomerServiceAgentProperties {
 
     private int readTimeoutMs = 15000;
 
+    private String authMode = "off";
+
+    private String internalSecret = "";
+
     public String getBaseUrl() {
         return baseUrl;
     }
@@ -33,5 +37,21 @@ public class CustomerServiceAgentProperties {
 
     public void setReadTimeoutMs(int readTimeoutMs) {
         this.readTimeoutMs = readTimeoutMs;
+    }
+
+    public String getAuthMode() {
+        return authMode;
+    }
+
+    public void setAuthMode(String authMode) {
+        this.authMode = authMode;
+    }
+
+    public String getInternalSecret() {
+        return internalSecret;
+    }
+
+    public void setInternalSecret(String internalSecret) {
+        this.internalSecret = internalSecret;
     }
 }

@@ -1,22 +1,22 @@
 """
-轻量规划工具 —— 决策层：意图识别 + 路由计划 + 参数抽取 + 澄清追问。
+轻量规划工具 -- 决策层:意图识别 + 路由计划 + 参数抽取 + 澄清追问.
 
-【这个文件是干什么的】
-主链路 9 步里的「决策」部分，回答一个问题：用户这句话该走哪条路（RAG / Tool / Workflow / 拦截 / 兜底）。
-被 customer_service_agent.chat() 调用，产出意图(intent)和路由计划(RoutePlan)，
-再交给大脑按意图分派。
+[这个文件是干什么的]
+主链路 9 步里的"决策"部分,回答一个问题:用户这句话该走哪条路(RAG / Tool / Workflow / 拦截 / 兜底).
+被 customer_service_agent.chat() 调用,产出意图(intent)和路由计划(RoutePlan),
+再交给大脑按意图分派.
 
-【核心流程（按调用顺序）】
-  ① classify_guard_intent      精确拦截高风险/边界（降级/安全/退货/退款），命中就覆盖模型
-  ② classify_intent            宽泛兜底分类，先调 guard，再按关键词分级，最后兜底 general_chat
-  ③ extract_order_id           正则抽订单号（不用 LLM，防幻觉）
-  ④ build_route_plan           把意图映射成 RoutePlan（工具白名单 + 缺参数不执行）
-  ⑤ build_order_clarification  缺订单号时生成「追问用户」的澄清
-  ⑥ estimate_tokens            粗估 token（成本展示用）
+[核心流程(按调用顺序)]
+  ① classify_guard_intent      精确拦截高风险/边界(降级/安全/退货/退款),命中就覆盖模型
+  ② classify_intent            宽泛兜底分类,先调 guard,再按关键词分级,最后兜底 general_chat
+  ③ extract_order_id           正则抽订单号(不用 LLM,防幻觉)
+  ④ build_route_plan           把意图映射成 RoutePlan(工具白名单 + 缺参数不执行)
+  ⑤ build_order_clarification  缺订单号时生成"追问用户"的澄清
+  ⑥ estimate_tokens            粗估 token(成本展示用)
 
-【注意】
-本文件实际只用 re 和 api.schemas 两个导入；其余 import（json/os/datetime/httpx/yaml/fastapi 等 14 个）
-是模板残留，并未在本文件使用，属待清理项，不影响运行。
+[注意]
+本文件实际只用 re 和 api.schemas 两个导入;其余 import(json/os/datetime/httpx/yaml/fastapi 等 14 个)
+是模板残留,并未在本文件使用,属待清理项,不影响运行.
 """
 
 from __future__ import annotations
@@ -40,19 +40,19 @@ from api.schemas import *
 
 def classify_guard_intent(user_message: str) -> Intent | None:
     """
-    精确拦截层（优先级最高）：只识别足够明确、允许覆盖模型路由的边界场景。
-    返回命中的 intent；未命中返回 None，交给 classify_intent 兜底。
-    覆盖 4 类：降级 / 安全攻击 / 退货 / 退款（含状态查询）。
+    精确拦截层(优先级最高):只识别足够明确,允许覆盖模型路由的边界场景.
+    返回命中的 intent;未命中返回 None,交给 classify_intent 兜底.
+    覆盖 4 类:降级 / 安全攻击 / 退货 / 退款(含状态查询).
     """
-    # 降级：系统级故障信号
+    # 降级:系统级故障信号
     if "SERVICE_TIMEOUT" in user_message:
         return "degradation_request"
 
-    # 安全：Prompt 注入攻击（套系统提示词/隐藏推理/工具 schema/内部策略）
+    # 安全:Prompt 注入攻击(套系统提示词/隐藏推理/工具 schema/内部策略)
     if any(term in user_message for term in ["系统提示词", "hidden reasoning", "隐藏推理", "工具 schema", "内部策略"]):
         return "security_request"
 
-    # 退货：明确的退货表达（必须走 Workflow，不能被模型误判为普通查询）
+    # 退货:明确的退货表达(必须走 Workflow,不能被模型误判为普通查询)
     if any(
         term in user_message
         for term in [
@@ -70,7 +70,7 @@ def classify_guard_intent(user_message: str) -> Intent | None:
     ):
         return "return_request"
 
-    # 退款：明确的退款表达（高风险资金动作，走 Workflow）
+    # 退款:明确的退款表达(高风险资金动作,走 Workflow)
     if any(
         term in user_message
         for term in [
@@ -89,7 +89,7 @@ def classify_guard_intent(user_message: str) -> Intent | None:
     ):
         return "refund_request"
 
-    # 退款状态查询：必须同时含「退款/退钱」+「进度/状态」等词，避免把「我要退款」误判成查询
+    # 退款状态查询:必须同时含"退款/退钱"+"进度/状态"等词,避免把"我要退款"误判成查询
     if any(subject in user_message for subject in ["退款", "退钱"]) and any(
         term in user_message
         for term in [
@@ -110,7 +110,7 @@ def classify_guard_intent(user_message: str) -> Intent | None:
     ):
         return "refund_status_query"
 
-    # 退款第二组关键词，覆盖更多表达
+    # 退款第二组关键词,覆盖更多表达
     if any(
         term in user_message
         for term in [
@@ -131,10 +131,10 @@ def classify_guard_intent(user_message: str) -> Intent | None:
 
 def classify_intent(user_message: str) -> Intent:
     """
-    宽泛兜底分类：先调 guard（精确），再按关键词分级（宽泛），最后兜底 general_chat。
-    保证永远返回一个 intent，不会返回 None。
+    宽泛兜底分类:先调 guard(精确),再按关键词分级(宽泛),最后兜底 general_chat.
+    保证永远返回一个 intent,不会返回 None.
     """
-    # 先让 Guard 精确拦截（安全/高风险优先）
+    # 先让 Guard 精确拦截(安全/高风险优先)
     guard_intent = classify_guard_intent(user_message)
     if guard_intent is not None:
         return guard_intent
@@ -149,10 +149,10 @@ def classify_intent(user_message: str) -> Intent:
         return "order_query"
     if "发票" in user_message:
         return "faq_query"
-    # 低置信测试词：故意制造「知识库里不存在」的场景，测系统的兜底能力
+    # 低置信测试词:故意制造"知识库里不存在"的场景,测系统的兜底能力
     if any(term in user_message for term in ["火星会员", "隐藏券", "不存在的活动", "未知活动"]):
         return "low_confidence_query"
-    # 活动类：同时提到商品 → 更具体的 product_query；否则 promotion_query
+    # 活动类:同时提到商品 -> 更具体的 product_query;否则 promotion_query
     if any(term in user_message for term in ["活动", "满减", "会员券", "优惠券", "会员规则", "大促"]):
         if any(term in user_message for term in ["商品", "耳机", "音箱", "库存", "价格", "多少钱", "有货"]):
             return "product_query"
@@ -164,9 +164,9 @@ def classify_intent(user_message: str) -> Intent:
 
 def extract_order_id(user_message: str) -> str | None:
     """
-    正则抽取订单号。为什么不用 LLM 抽：LLM 会「编造」订单号（幻觉），
-    订单号有固定格式（SO... 或 ORD...），用正则更可靠。
-    抽不到返回 None，触发后续的澄清追问，而不是让模型代填。
+    正则抽取订单号.为什么不用 LLM 抽:LLM 会"编造"订单号(幻觉),
+    订单号有固定格式(SO... 或 ORD...),用正则更可靠.
+    抽不到返回 None,触发后续的澄清追问,而不是让模型代填.
     """
     match = re.search(
         r"\b(?:SO[A-Za-z0-9_-]{6,}|ORD\d{4,})\b",
@@ -178,8 +178,8 @@ def extract_order_id(user_message: str) -> str | None:
 
 def extract_return_reason(user_message: str) -> str | None:
     """
-    白名单制抽取退货原因。退货涉及资金，必须由用户明确表达，不能让模型「猜」。
-    只接受预定义的 6 种原因，返回第一个匹配的，否则 None。
+    白名单制抽取退货原因.退货涉及资金,必须由用户明确表达,不能让模型"猜".
+    只接受预定义的 6 种原因,返回第一个匹配的,否则 None.
     """
     reason_terms = ("七天无理由", "质量问题", "商品破损", "发错货", "少件", "与描述不符")
     return next((term for term in reason_terms if term in user_message), None)
@@ -193,11 +193,11 @@ def build_route_plan(
     model_used: bool,
 ) -> RoutePlan:
     """
-    把意图收敛成白名单 RoutePlan。两个核心设计：
-    1. 工具白名单：candidate_catalog 预定义所有可用工具，模型不能「发明」新工具
-    2. 参数完整性：缺订单号时不执行需要订单号的工具，改走澄清
+    把意图收敛成白名单 RoutePlan.两个核心设计:
+    1. 工具白名单:candidate_catalog 预定义所有可用工具,模型不能"发明"新工具
+    2. 参数完整性:缺订单号时不执行需要订单号的工具,改走澄清
     """
-    # 工具白名单：4 个只读工具。高风险操作（退款/退货）不在工具层，而是走 Workflow
+    # 工具白名单:4 个只读工具.高风险操作(退款/退货)不在工具层,而是走 Workflow
     candidate_catalog = {
         "get_order_detail": ToolCandidate(
             name="get_order_detail",
@@ -230,7 +230,7 @@ def build_route_plan(
     risk_level: RiskLevel = "low"
     requires_workflow = False
 
-    # 意图 → 路由映射
+    # 意图 -> 路由映射
     if intent == "order_query":
         required_tools = ["get_order_logistics"]
     elif intent == "refund_status_query":
@@ -259,7 +259,7 @@ def build_route_plan(
 
     # 需要订单号才能执行的工具
     order_bound_tools = {"get_order_detail", "get_order_logistics", "get_refund_status"}
-    # 缺订单号时，这些工具不允许执行（防止模型凭空生成参数）
+    # 缺订单号时,这些工具不允许执行(防止模型凭空生成参数)
     executable_tools = (
         required_tools
         if order_id or not any(name in order_bound_tools for name in required_tools)
@@ -290,9 +290,9 @@ def build_route_plan(
 
 def build_order_clarification(request: ChatRequest, route_plan: RoutePlan) -> ClarificationRequest | None:
     """
-    缺订单号时生成「追问用户」的澄清。
-    为什么不让模型代选订单：模型可能选错（幻觉），且订单涉及隐私资金，
-    必须从可信 Runtime Context 读订单列表，让用户自己选。
+    缺订单号时生成"追问用户"的澄清.
+    为什么不让模型代选订单:模型可能选错(幻觉),且订单涉及隐私资金,
+    必须从可信 Runtime Context 读订单列表,让用户自己选.
     """
     if route_plan.fallback_policy != "ask_order_id" or not route_plan.tool_candidates:
         return None
@@ -301,7 +301,7 @@ def build_order_clarification(request: ChatRequest, route_plan: RoutePlan) -> Cl
 
     candidates: list[ClarificationCandidate] = []
     for order in orders:
-        # 只返回当前用户的订单（安全检查）
+        # 只返回当前用户的订单(安全检查)
         if str(order.get("userId")) != request.runtime_user_id:
             continue
         order_id = str(order.get("orderNo") or "").strip()
@@ -330,5 +330,5 @@ def build_order_clarification(request: ChatRequest, route_plan: RoutePlan) -> Cl
 
 
 def estimate_tokens(text: str) -> int:
-    """粗估 token（约 2 字符/token），只用于成本展示，不是精确计费。"""
+    """粗估 token(约 2 字符/token),只用于成本展示,不是精确计费."""
     return max(1, len(text) // 2)

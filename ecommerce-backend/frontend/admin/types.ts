@@ -184,3 +184,36 @@ export type AdminUserBalance = {
   availableBalance: number;
   recentTransactions: BalanceTransaction[];
 };
+
+export type AgentPendingApproval = {
+  workflow_id: string;
+  session_id: string;
+  user_id: string;
+  order_no: string | null;
+  workflow_type: string;
+  status: string;
+  pending_action: string;
+  user_consented_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  order_status: string | null;
+  logistics_status: string | null;
+};
+
+export type AgentApprovalDecision = "approved" | "rejected" | "needs_more_info";
+
+export type AgentApprovalResult = {
+  session_id: string;
+  workflow_id: string;
+  status: "completed" | "paused" | "rejected" | "blocked";
+  answer: string;
+  resume_result: {
+    accepted: boolean;
+    decision: AgentApprovalDecision;
+    idempotent_replay: boolean;
+    request_id: string | null;
+    reason: string;
+  };
+  workflow: Record<string, unknown> | null;
+  business_recheck: Record<string, unknown>;
+};

@@ -5,6 +5,7 @@ import type {
   Cart,
   CurrentAccount,
   CustomerServiceResponse,
+  CustomerServiceApprovalStatus,
   FaqEntry,
   Payment,
   ShopOrder,
@@ -118,5 +119,9 @@ export const api = {
   chat: (body: unknown) =>
     apiRequest<CustomerServiceResponse>("/api/customer-service/chat", { method: "POST", body }),
   resume: (body: unknown) =>
-    apiRequest<CustomerServiceResponse>("/api/customer-service/resume", { method: "POST", body })
+    apiRequest<CustomerServiceResponse>("/api/customer-service/resume", { method: "POST", body }),
+  approvalStatus: (sessionId: string) =>
+    apiRequest<CustomerServiceApprovalStatus>(
+      `/api/customer-service/approval-status?sessionId=${encodeURIComponent(sessionId)}`
+    )
 };

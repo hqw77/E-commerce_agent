@@ -34,6 +34,8 @@ services:
       SPRING_PROFILES_ACTIVE: course-debug
       AGENT_SERVICE_BASE_URL: ${AGENT_SERVICE_BASE_URL:-http://host.docker.internal:8000}
       AGENT_SERVICE_AUTH_TOKEN: ${AGENT_SERVICE_AUTH_TOKEN:-course-debug-agent-service}
+      AGENT_AUTH_MODE: ${AGENT_AUTH_MODE:-off}
+      AGENT_INTERNAL_SECRET: ${AGENT_INTERNAL_SECRET:-}
     depends_on:
       mysql:
         condition: service_healthy

@@ -8,6 +8,9 @@ import type {
   AdminPromotion,
   AdminPromotionPayload,
   AdminUserBalance,
+  AgentApprovalDecision,
+  AgentApprovalResult,
+  AgentPendingApproval,
   CurrentAccount,
   ReviewPayload
 } from "./types";
@@ -63,5 +66,14 @@ export const adminApi = {
     apiRequest(`/api/admin/after-sales/${requestNo}/reject`, { method: "POST", body }),
   needMoreInfo: (requestNo: string, body: ReviewPayload) =>
     apiRequest(`/api/admin/after-sales/${requestNo}/need-more-info`, { method: "POST", body }),
-  userBalance: (userId: string) => apiRequest<AdminUserBalance>(`/api/admin/users/${userId}`)
+  userBalance: (userId: string) => apiRequest<AdminUserBalance>(`/api/admin/users/${userId}`),
+  agentApprovals: () => apiRequest<AgentPendingApproval[]>("/api/admin/agent-approvals"),
+  decideAgentApproval: (
+    workflowId: string,
+    body: { sessionId: string; decision: AgentApprovalDecision; note?: string }
+  ) =>
+    apiRequest<AgentApprovalResult>(`/api/admin/agent-approvals/${encodeURIComponent(workflowId)}`, {
+      method: "POST",
+      body
+    })
 };

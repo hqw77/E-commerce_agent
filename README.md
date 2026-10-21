@@ -68,6 +68,22 @@ npm install
 npm run dev
 ```
 
+## 一键演示环境
+
+需要 Docker Desktop。复制环境变量后启动：
+
+```bash
+cp .env.demo.example .env.demo
+# 修改 AGENT_INTERNAL_SECRET / AGENT_RESUME_SECRET / AGENT_SERVICE_AUTH_TOKEN
+docker compose --env-file .env.demo -f docker-compose.demo.yml up --build
+```
+
+- 商城：http://localhost:8081/
+- 管理后台：http://localhost:8081/admin
+- 账号：`zhangsan / 123456`、`admin / admin123456`
+
+完整步骤、账号和排错见 [DEMO.md](./DEMO.md)。
+
 ## 核心能力
 
 - **混合检索 RAG**：向量召回（语义）+ 关键词召回（长尾精确词）双路合并重排，配合查询改写、索引指纹版本缓存、证据门防幻觉，回答附 citations 可追溯。
@@ -75,3 +91,27 @@ npm run dev
 - **LangGraph 工作流 + HITL**：退款/退货走显式状态机，高风险动作必须人工审批，resume_token + 幂等键防重复提交。
 - **安全与可观测**：Prompt 注入检测 + 污染脱敏，Trace 记录隐私脱敏，不泄露 hidden CoT。
 - **质量闭环**：规则化回归评测 + 反馈归因回填，防止行为漂移。
+
+## 生产化改造
+
+在课程版本基础上，按生产边界补了以下工程能力：
+
+- **服务间鉴权**：`backend/api/auth.py` 支持 `AGENT_AUTH_MODE=hmac`，用 HMAC + 时间戳 + nonce 防重放；身份由凭证注入，不再信任请求体里的 `runtime_user_id`。`off` 仅用于本地调试。Java 网关的 `AgentRequestSigner` 已补出站签名。
+- **管理面收口**：`/eval/run`、`/feedback/submit`、`/sessions/{id}/trace` 在 hmac 模式下要求 admin 角色；CORS 改为域名白名单。
+- **HITL 令牌**：`backend/workflows/tokens.py` 在 `AGENT_RESUME_TOKEN_MODE=hmac` 时签发一次性、带过期时间的签名令牌；生产开启 `AGENT_STRICT_BUSINESS_RECHECK=1`，业务事实拿不到时 **fail-closed**。
+- **状态持久化**：`backend/db/` 用 SQLAlchemy 把 workflow checkpoint、幂等记录、审批记录、审计流水落库；MySQL 行锁 + 唯一约束保证并发幂等，重启可恢复。本地可用 SQLite，生产用 MySQL。
+- **审批分离**：`/chat/consent` 只记录用户同意，`/admin/approvals/{workflow_id}` 由审批角色做决定；申请人不能审批自己的单（四眼原则），审批结果写 `agent_approval_record` + `agent_audit_log`。
+- **启动 fail-fast**：`backend/config/production.py` 在 `AGENT_ENV=production` 时校验鉴权、密钥、CORS、数据库、审批模式、课程/离线开关；配置不全直接拒绝启动。
+- **可观测与交付**：请求 ID + JSON 结构化日志；`backend/Dockerfile` 容器化；`backend/tests/` 提供 40 条 pytest 用例、无 pytest 自检脚本和 MySQL 并发冒烟脚本。
+- **本地验证**：`cd backend && pytest -q`；MySQL 持久化验证见 `tests/mysql_concurrency.py`。
+
+## 已知边界（生产前还需补）
+
+- memory 模式仍是默认值，适合本地演示；生产必须 `AGENT_STATE_BACKEND=sql` + MySQL。
+- 商城 Java 网关已把用户确认改调 `/chat/consent`；管理后台“客服审批”页已接入 `/api/admin/agent-approvals`。
+- 转人工目前只是 `next_action` 字符串，没有接工单/队列。
+- 退款只记录审批结果，不执行真实资金动作；真实执行需要 outbox + 对账。
+- 评测用例是规则化离线用例，不等同于线上监控或 LLM-as-judge。
+- 多副本部署前需要确认 MySQL 连接池、行锁和审批唯一约束在目标环境生效。
+
+

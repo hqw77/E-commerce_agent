@@ -1063,7 +1063,7 @@ function CustomerServiceDrawer({ open, context, onClose, onError }: {
       const next = await api.resume({
         sessionId: response.sessionId,
         resumeToken: response.resumeToken,
-        decision,
+        decision: decision === "APPROVED" ? "CONFIRM_SUBMIT" : "CANCEL_SUBMIT",
         relatedOrderNo: response.relatedOrderNo,
         relatedAfterSaleNo: response.relatedAfterSaleNo
       });
@@ -1071,6 +1071,21 @@ function CustomerServiceDrawer({ open, context, onClose, onError }: {
       setMessages((prev) => [...prev, { from: "agent", text: next.answer, response: next }]);
     } catch (err) {
       setMessages((prev) => [...prev, { from: "system", text: onError(err) || "客服繁忙，请稍后再试。" }]);
+    } finally {
+      busyRef.current = false;
+      setLoading(false);
+    }
+  }
+
+  async function refreshApproval(response: CustomerServiceResponse) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setLoading(true);
+    try {
+      const status = await api.approvalStatus(response.sessionId);
+      setMessages((prev) => [...prev, { from: "system", text: status.message }]);
+    } catch (err) {
+      setMessages((prev) => [...prev, { from: "system", text: onError(err) || "审批状态查询失败，请稍后再试。" }]);
     } finally {
       busyRef.current = false;
       setLoading(false);
@@ -1094,6 +1109,13 @@ function CustomerServiceDrawer({ open, context, onClose, onError }: {
                 <span>{message.response.confirmationSummary}</span>
                 <button className="primary" disabled={loading} onClick={() => decide(message.response!, "APPROVED")}>确认提交申请</button>
                 <button disabled={loading} onClick={() => decide(message.response!, "REJECTED")}>暂不提交</button>
+              </div>
+            )}
+            {message.response?.pendingAction === "WAIT_APPROVAL" && !message.response.confirmRequired && (
+              <div className="confirm-card">
+                <b>等待客服主管审批</b>
+                <span>申请已提交，客服主管审批后可以查看结果。</span>
+                <button className="primary" disabled={loading} onClick={() => refreshApproval(message.response!)}>刷新审批状态</button>
               </div>
             )}
           </div>

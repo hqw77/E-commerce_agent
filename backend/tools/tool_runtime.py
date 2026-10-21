@@ -1,29 +1,29 @@
 """
-业务工具执行层 —— 4 个只读工具的实际实现。
+业务工具执行层 -- 4 个只读工具的实际实现.
 
-【这个文件是干什么的】
-Tool 路的最底层工具实现：真正去查业务数据（订单/物流/退款/商品），并返回可观察的 ToolCallTrace。
-被 langchain_runtime.py 的 4 个内部函数调用，再往下调 integrations/ecommerce_client.py 去 Java 后端取数据。
+[这个文件是干什么的]
+Tool 路的最底层工具实现:真正去查业务数据(订单/物流/退款/商品),并返回可观察的 ToolCallTrace.
+被 langchain_runtime.py 的 4 个内部函数调用,再往下调 integrations/ecommerce_client.py 去 Java 后端取数据.
 
-【怎么跑起来】
-调用链：
-    customer_service_agent.chat() → langchain_runtime.run()
-      → 本文件的 4 个工具函数（get_order_detail / get_order_logistics / get_refund_status / search_products）
-        → integrations/ecommerce_client.py → Java 后端（8081）
+[怎么跑起来]
+调用链:
+    customer_service_agent.chat() -> langchain_runtime.run()
+      -> 本文件的 4 个工具函数(get_order_detail / get_order_logistics / get_refund_status / search_products)
+        -> integrations/ecommerce_client.py -> Java 后端(8081)
 
-【核心流程：4 个工具】
-  ① get_order_detail    查订单详情 + 三重校验（缺订单号 / 订单不存在 / 归属不符）
-  ② get_order_logistics 基于订单事实生成物流结果（依赖订单已查到）
-  ③ get_refund_status   查退款进度（只查已存在的申请，绝不隐式创建新退款）
+[核心流程:4 个工具]
+  ① get_order_detail    查订单详情 + 三重校验(缺订单号 / 订单不存在 / 归属不符)
+  ② get_order_logistics 基于订单事实生成物流结果(依赖订单已查到)
+  ③ get_refund_status   查退款进度(只查已存在的申请,绝不隐式创建新退款)
   ④ search_products     查商品实时价格/库存/活动
 
-【关键设计：只读 + 归属校验】
-所有工具都是只读（只查不写），高风险动作（退款/退货）留给 Workflow。
-get_order_detail 做了「订单归属校验」——订单的 userId 必须等于当前用户，防止越权查别人的订单。
+[关键设计:只读 + 归属校验]
+所有工具都是只读(只查不写),高风险动作(退款/退货)留给 Workflow.
+get_order_detail 做了"订单归属校验"--订单的 userId 必须等于当前用户,防止越权查别人的订单.
 
-【注意】
-本文件实际只用到 Any（typing）+ api.schemas + ecommerce_client + runtime_context；
-其余 import（json/os/re/datetime/httpx/yaml/fastapi 等 14 个）是模板残留，未使用，待清理。
+[注意]
+本文件实际只用到 Any(typing)+ api.schemas + ecommerce_client + runtime_context;
+其余 import(json/os/re/datetime/httpx/yaml/fastapi 等 14 个)是模板残留,未使用,待清理.
 """
 
 from __future__ import annotations
@@ -52,9 +52,9 @@ def get_order_detail(
     runtime_user_id: str,
     runtime_context: dict[str, Any] | None,
 ) -> tuple[dict[str, Any] | None, ToolCallTrace]:
-    """查订单详情。三重校验：缺订单号 / 订单不存在 / 归属不符（防越权）。"""
+    """查订单详情.三重校验:缺订单号 / 订单不存在 / 归属不符(防越权)."""
     arguments = {"order_id": order_id}
-    # 校验1：缺订单号
+    # 校验1:缺订单号
     if order_id is None:
         return None, ToolCallTrace(
             tool_name="get_order_detail",
@@ -64,9 +64,9 @@ def get_order_detail(
             error_type="missing_order_id",
             next_action="ask_clarification",
         )
-    # 先从可信 Runtime Context 找，找不到再调 Java 后端
+    # 先从可信 Runtime Context 找,找不到再调 Java 后端
     order = find_context_order(runtime_context, order_id) or order_fact_from_ecommerce(order_id, runtime_user_id)
-    # 校验2：订单不存在
+    # 校验2:订单不存在
     if order is None:
         return None, ToolCallTrace(
             tool_name="get_order_detail",
@@ -77,7 +77,7 @@ def get_order_detail(
             risk_level="medium",
             next_action="ask_clarification",
         )
-    # 校验3：订单归属（防止查别人的订单）
+    # 校验3:订单归属(防止查别人的订单)
     if order_user_id(order) and order_user_id(order) != runtime_user_id:
         return None, ToolCallTrace(
             tool_name="get_order_detail",
@@ -94,7 +94,7 @@ def get_order_detail(
 
 
 def get_order_logistics(order: dict[str, Any]) -> ToolCallTrace:
-    """基于订单事实生成物流结果，不让模型凭空猜测实时状态。"""
+    """基于订单事实生成物流结果,不让模型凭空猜测实时状态."""
     return ToolCallTrace(
         tool_name="get_order_logistics",
         arguments={"order_id": order_no(order)},
@@ -106,9 +106,9 @@ def get_order_logistics(order: dict[str, Any]) -> ToolCallTrace:
 
 
 def get_refund_status(order: dict[str, Any], runtime_user_id: str) -> ToolCallTrace:
-    """查退款进度。只读已存在的售后申请，绝不隐式创建新退款。"""
+    """查退款进度.只读已存在的售后申请,绝不隐式创建新退款."""
     requests = after_sale_requests_from_ecommerce(order_no(order), runtime_user_id)
-    # 业务 API 不可用 → 不猜，转人工
+    # 业务 API 不可用 -> 不猜,转人工
     if requests is None:
         return ToolCallTrace(
             tool_name="get_refund_status",
@@ -130,7 +130,7 @@ def get_refund_status(order: dict[str, Any], runtime_user_id: str) -> ToolCallTr
             risk_level="low",
             next_action="answer_user",
         )
-    # 取最新一条申请（按更新时间/创建时间排序）
+    # 取最新一条申请(按更新时间/创建时间排序)
     latest = max(
         refund_requests,
         key=lambda item: str(item.get("updatedAt") or item.get("createdAt") or ""),
@@ -149,7 +149,7 @@ def get_refund_status(order: dict[str, Any], runtime_user_id: str) -> ToolCallTr
 
 
 def search_products(keyword: str) -> tuple[list[dict[str, Any]], ToolCallTrace]:
-    """查商品实时价格、库存和活动事实；稳定叠加规则仍由 RAG 提供。"""
+    """查商品实时价格,库存和活动事实;稳定叠加规则仍由 RAG 提供."""
     products = products_from_ecommerce(keyword)
     if not products:
         return [], ToolCallTrace(
@@ -166,7 +166,7 @@ def search_products(keyword: str) -> tuple[list[dict[str, Any]], ToolCallTrace]:
     stock = product.get("stock")
     price = product.get("price")
     summary = f"{name} 商品标价 {price} 元，库存 {stock} 件。"
-    # 如果商品带活动信息，拼进摘要
+    # 如果商品带活动信息,拼进摘要
     promotion = product.get("promotion")
     if isinstance(promotion, dict):
         promotion_name = promotion.get("promotionName")

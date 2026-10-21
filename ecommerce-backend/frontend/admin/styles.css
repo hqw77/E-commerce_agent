@@ -300,6 +300,8 @@ tbody tr:hover {
 
 .status.pending,
 .status.pending-review,
+.status.pending-approval,
+.status.paused,
 .status.draft {
   background: #fff4dc;
   color: #8a5b00;
@@ -309,7 +311,8 @@ tbody tr:hover {
 .status.cancelled,
 .status.off-sale,
 .status.unpublished,
-.status.inactive {
+.status.inactive,
+.status.blocked {
   background: #fbe9e7;
   color: #a24132;
 }

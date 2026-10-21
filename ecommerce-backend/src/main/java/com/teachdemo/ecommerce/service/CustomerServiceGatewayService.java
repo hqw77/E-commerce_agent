@@ -3,8 +3,10 @@ package com.teachdemo.ecommerce.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.MissingNode;
 import com.teachdemo.ecommerce.dto.AgentChatRequest;
-import com.teachdemo.ecommerce.dto.AgentResumeRequest;
+import com.teachdemo.ecommerce.dto.AgentConsentRequest;
+import com.teachdemo.ecommerce.dto.AgentWorkflowStatus;
 import com.teachdemo.ecommerce.dto.CustomerServiceActionResponse;
+import com.teachdemo.ecommerce.dto.CustomerServiceApprovalStatusResponse;
 import com.teachdemo.ecommerce.dto.CustomerServiceChatRequest;
 import com.teachdemo.ecommerce.dto.CustomerServicePageContextRequest;
 import com.teachdemo.ecommerce.dto.CustomerServiceResponse;
@@ -121,23 +123,66 @@ public class CustomerServiceGatewayService {
         }
 
         try {
-            JsonNode agentResponse = agentClient.resume(new AgentResumeRequest(
+            // 用户点击确认只记录 user consent,不再直接调用 /chat/resume 完成审批.
+            JsonNode agentResponse = agentClient.consent(new AgentConsentRequest(
                 session.getSessionId(),
                 session.getWorkflowId(),
                 session.getResumeToken(),
-                "approved",
-                "用户已在跨境电商公司商城客服入口确认提交申请"
+                profile.getUserId()
             ));
             session.setHandled(true);
+            session.setPendingAction("WAIT_APPROVAL");
+            session.setResumeToken(null);
             sessionStore.save(session);
-            return sanitizeResumeResponse(agentResponse, session);
+            return sanitizeConsentResponse(agentResponse, session);
         } catch (RuntimeException ex) {
             return fallback(session.getSessionId());
         }
     }
 
-    private UserProfile loadProfile(AccountPrincipal principal) {
-        return userProfileRepository.findByUserId(principal.getUserId())
+    public CustomerServiceApprovalStatusResponse approvalStatus(String sessionId, AccountPrincipal principal) {
+        UserProfile profile = loadProfile(principal);
+        CustomerServiceSession session = sessionStore.find(sessionId)
+            .orElseThrow(() -> new CustomerServiceException(HttpStatus.NOT_FOUND, "NOT_FOUND", "客服会话不存在"));
+        assertSessionOwner(session, profile.getUserId());
+        if (!StringUtils.hasText(session.getWorkflowId())) {
+            throw new CustomerServiceException(HttpStatus.CONFLICT, "CONFLICT", "当前会话没有审批中的申请");
+        }
+        AgentWorkflowStatus status = agentClient.getWorkflowStatus(profile.getUserId(), session.getWorkflowId());
+        return new CustomerServiceApprovalStatusResponse(
+            session.getSessionId(),
+            session.getWorkflowId(),
+            status.getStatus(),
+            status.getPendingAction(),
+            status.getUserConsentedAt(),
+            status.getDecidedAt(),
+            status.getDecision(),
+            status.getReviewerRole(),
+            approvalStatusMessage(status)
+        );
+    }
+
+    private static String approvalStatusMessage(AgentWorkflowStatus status) {
+        String current = status == null ? "" : String.valueOf(status.getStatus());
+        if ("completed".equals(current)) {
+            return "审批已通过，退款申请已记录，等待后续处理。";
+        }
+        if ("rejected".equals(current)) {
+            return "审批未通过，客服会继续联系您说明原因。";
+        }
+        if ("pending_approval".equals(current)) {
+            return "审批进行中，请耐心等待客服主管处理。";
+        }
+        if ("paused".equals(current)) {
+            if (status != null && StringUtils.hasText(status.getUserConsentedAt())) {
+                return "等待客服主管审批。";
+            }
+            return "等待您确认提交。";
+        }
+        return StringUtils.hasText(current) ? "当前审批状态：" + current : "审批状态暂不可用。";
+    }
+
+    private UserProfile loadProfile(AccountPrincipal principal) {        return userProfileRepository.findByUserId(principal.getUserId())
             .orElseThrow(() -> new CustomerServiceException(HttpStatus.NOT_FOUND, "NOT_FOUND", "用户资料不存在"));
     }
 
@@ -311,6 +356,18 @@ public class CustomerServiceGatewayService {
             pageContext == null ? null : trimToNull(pageContext.getOrderNo()),
             pageContext == null ? null : trimToNull(pageContext.getAfterSaleNo()),
             null, List.of(), false);
+    }
+
+    private CustomerServiceResponse sanitizeConsentResponse(JsonNode agentResponse, CustomerServiceSession session) {
+        if (agentResponse == null) {
+            return fallback(session.getSessionId());
+        }
+        String answer = firstText(agentResponse, "message", "answer");
+        if (!StringUtils.hasText(answer)) {
+            answer = "已收到您的确认，正在等待客服主管审批。";
+        }
+        return new CustomerServiceResponse(answer, session.getSessionId(), false, "WAIT_APPROVAL", null, null,
+            session.getRelatedOrderNo(), session.getRelatedAfterSaleNo(), null, List.of(), false);
     }
 
     private CustomerServiceResponse sanitizeResumeResponse(JsonNode agentResponse, CustomerServiceSession session) {

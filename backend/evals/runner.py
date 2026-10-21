@@ -1,23 +1,23 @@
 """
-评测执行层 —— 用固定用例检查回答、工具、引用、Trace 和状态。
+评测执行层 -- 用固定用例检查回答,工具,引用,Trace 和状态.
 
-【这个文件是干什么的】
-回归评测：跑固定的 cases.yml 用例，检查 Agent 的公开响应字段（回答/工具/引用/Trace/状态）
-是否满足期望，用于防止改代码后能力退化。被 api/routes.py 的 /eval/run 接口调用。
+[这个文件是干什么的]
+回归评测:跑固定的 cases.yml 用例,检查 Agent 的公开响应字段(回答/工具/引用/Trace/状态)
+是否满足期望,用于防止改代码后能力退化.被 api/routes.py 的 /eval/run 接口调用.
 
-【怎么跑起来】
-调用链：POST /eval/run → eval_runner.run(case_id)
-Eval 不读 hidden CoT，也不伪造模型或工具结果；它只调用真实 Agent，再检查公开信号。
+[怎么跑起来]
+调用链:POST /eval/run -> eval_runner.run(case_id)
+Eval 不读 hidden CoT,也不伪造模型或工具结果;它只调用真实 Agent,再检查公开信号.
 
-【核心流程】
+[核心流程]
   ① load_cases    读 cases.yml + 合并反馈回填的临时 case
-  ② run           逐个跑 case，检查期望信号/工具/引用/Trace/状态
+  ② run           逐个跑 case,检查期望信号/工具/引用/Trace/状态
   ③ _failure_categories 把缺失项归并成失败类别
-  ④ 返回 EvalRunResponse（通过/失败/失败类别）
+  ④ 返回 EvalRunResponse(通过/失败/失败类别)
 
-【注意】
-本文件实际用到 Any / yaml / uuid4 + api.schemas + agent + trace_store；
-其余 import（json/os/re/datetime/httpx/fastapi 等 12 个）是模板残留，未使用。
+[注意]
+本文件实际用到 Any / yaml / uuid4 + api.schemas + agent + trace_store;
+其余 import(json/os/re/datetime/httpx/fastapi 等 12 个)是模板残留,未使用.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ from observability.trace import trace_store
 
 
 class EvalRunner:
-    """型离线回归评测。Eval 只调用真实 Agent，再检查公开响应和 trace 事件。"""
+    """型离线回归评测.Eval 只调用真实 Agent,再检查公开响应和 trace 事件."""
 
     def __init__(self, agent: Lesson41Agent, cases_path: Path) -> None:
         self.agent = agent
@@ -50,19 +50,19 @@ class EvalRunner:
         self.backfilled_cases: list[dict[str, Any]] = []  # 反馈回填的临时 case
 
     def load_cases(self) -> list[dict[str, Any]]:
-        """读取固定评测用例，并合并从反馈回填的临时回归 case。"""
+        """读取固定评测用例,并合并从反馈回填的临时回归 case."""
         payload = yaml.safe_load(self.cases_path.read_text(encoding="utf-8"))
         return [*payload["cases"], *self.backfilled_cases]
 
     def run(self, case_id: str | None = None) -> EvalRunResponse:
-        """运行回归评测，用公开响应、工具、引用、Trace 和状态检查退化。"""
+        """运行回归评测,用公开响应,工具,引用,Trace 和状态检查退化."""
         selected = [case for case in self.load_cases() if case_id in (None, case["case_id"])]
         results: list[EvalCaseResult] = []
         run_id = uuid4().hex[:8]
         for case in selected:
             session_id = f"eval-{case['case_id']}-{run_id}"
             actual = self._run_case(case, session_id)
-            # 逐项检查：缺失信号 / 缺失工具 / 意外工具 / 缺失引用 / 禁止引用 / 缺失 trace / 状态 / 禁止文本
+            # 逐项检查:缺失信号 / 缺失工具 / 意外工具 / 缺失引用 / 禁止引用 / 缺失 trace / 状态 / 禁止文本
             missing_signals = [signal for signal in case.get("expected_signals", []) if signal not in actual["text"]]
             missing_tools = [tool for tool in case.get("expected_tools", []) if tool not in actual["tools"]]
             unexpected_tools = [tool for tool in case.get("forbidden_tools", []) if tool in actual["tools"]]
@@ -122,13 +122,13 @@ class EvalRunner:
         )
 
     def _run_case(self, case: dict[str, Any], session_id: str) -> dict[str, Any]:
-        """按 case 类型运行聊天或 HITL 恢复，并统一成 Eval 可检查的公开信号。"""
+        """按 case 类型运行聊天或 HITL 恢复,并统一成 Eval 可检查的公开信号."""
         if case.get("case_type") == "resume":
             return self._run_resume_case(case, session_id)
         return self._run_chat_case(case, session_id)
 
     def _run_chat_case(self, case: dict[str, Any], session_id: str) -> dict[str, Any]:
-        """运行普通 /chat case，并抽取固定评测信号。"""
+        """运行普通 /chat case,并抽取固定评测信号."""
         response = self.agent.chat(
             ChatRequest(
                 session_id=session_id,
@@ -162,7 +162,7 @@ class EvalRunner:
         }
 
     def _run_resume_case(self, case: dict[str, Any], session_id: str) -> dict[str, Any]:
-        """运行 HITL 恢复类 case，让 /eval/run 也能覆盖恢复令牌、checkpoint 和幂等边界。"""
+        """运行 HITL 恢复类 case,让 /eval/run 也能覆盖恢复令牌,checkpoint 和幂等边界."""
         start_response: ChatResponse | None = None
         workflow_id = case.get("workflow_id", f"wf-{session_id}")
         resume_token = case.get("resume_token", f"resume-{session_id}-{workflow_id}-missing")
@@ -228,7 +228,7 @@ class EvalRunner:
 
     @staticmethod
     def _citation_signals(citations: list[Citation]) -> list[str]:
-        """把引用对象展平成可匹配信号，便于规则化评测检查来源。"""
+        """把引用对象展平成可匹配信号,便于规则化评测检查来源."""
         signals: list[str] = []
         for citation in citations:
             signals.extend([citation.source, citation.title, citation.retrieval_stage or ""])
@@ -238,7 +238,7 @@ class EvalRunner:
 
     @classmethod
     def _flatten_values(cls, value: Any) -> list[str]:
-        """展开嵌套 session_state，用于匹配 workflow、Trace 和成本治理状态。"""
+        """展开嵌套 session_state,用于匹配 workflow,Trace 和成本治理状态."""
         if isinstance(value, dict):
             values: list[str] = []
             for item in value.values():
@@ -255,12 +255,12 @@ class EvalRunner:
 
     @staticmethod
     def _contains_any(values: list[str], expected: str) -> bool:
-        """检查实际信号是否包含期望片段，避免评测依赖全文相等。"""
+        """检查实际信号是否包含期望片段,避免评测依赖全文相等."""
         return any(expected in value for value in values)
 
     @classmethod
     def _matches_session_state(cls, session_state: dict[str, Any], requirement: str) -> bool:
-        """按点路径检查 session_state，确认关键业务状态没有丢失。"""
+        """按点路径检查 session_state,确认关键业务状态没有丢失."""
         if "=" not in requirement:
             return cls._lookup(session_state, requirement) is not None
         path, expected = requirement.split("=", 1)
@@ -269,7 +269,7 @@ class EvalRunner:
 
     @staticmethod
     def _lookup(payload: dict[str, Any], path: str) -> Any:
-        """在嵌套字典中读取点路径字段，服务于 Eval 的状态断言。"""
+        """在嵌套字典中读取点路径字段,服务于 Eval 的状态断言."""
         current: Any = payload
         normalized_path = path.removeprefix("session_state.")
         for part in normalized_path.split("."):
@@ -280,7 +280,7 @@ class EvalRunner:
 
     @staticmethod
     def _normalize_scalar(value: Any) -> str:
-        """把布尔和空值归一成字符串，让 YAML 期望更稳定。"""
+        """把布尔和空值归一成字符串,让 YAML 期望更稳定."""
         if isinstance(value, bool):
             return "true" if value else "false"
         if value is None:
@@ -299,7 +299,7 @@ class EvalRunner:
         missing_session_state: list[str],
         forbidden_text_hits: list[str],
     ) -> list[str]:
-        """把缺失项归并成问题类别，为反馈归因提供入口。"""
+        """把缺失项归并成问题类别,为反馈归因提供入口."""
         categories: list[str] = []
         if missing_signals:
             categories.append("answer_signal_missing")
@@ -317,7 +317,7 @@ class EvalRunner:
 
     @staticmethod
     def _summary(results: list[EvalCaseResult]) -> dict[str, Any]:
-        """汇总一次评测运行结果，展示失败 case 和失败类别。"""
+        """汇总一次评测运行结果,展示失败 case 和失败类别."""
         failed_cases = [result.case_id for result in results if not result.passed]
         failure_categories: dict[str, int] = {}
         for result in results:

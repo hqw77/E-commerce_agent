@@ -22,11 +22,13 @@ import type {
   AdminPromotionPayload,
   AdminPromotionProduct,
   AdminUserBalance,
+  AgentApprovalDecision,
+  AgentPendingApproval,
   CurrentAccount,
   ReviewPayload
 } from "./types";
 
-type PageKey = "products" | "promotions" | "orders" | "after-sales" | "users";
+type PageKey = "products" | "promotions" | "orders" | "after-sales" | "agent-approvals" | "users";
 type AuthState = "checking" | "login" | "ready" | "forbidden";
 type Notice = { type: "success" | "error" | "info"; text: string } | null;
 type PromotionForm = Omit<AdminPromotionPayload, "products"> & { products: AdminPromotionProduct[] };
@@ -46,6 +48,7 @@ const navItems: Array<{ key: PageKey; label: string; icon: typeof Boxes }> = [
   { key: "promotions", label: "活动管理", icon: PackagePlus },
   { key: "orders", label: "订单管理", icon: ClipboardList },
   { key: "after-sales", label: "售后审批", icon: BadgeCheck },
+  { key: "agent-approvals", label: "客服审批", icon: ShieldAlert },
   { key: "users", label: "用户与余额", icon: Users }
 ];
 
@@ -194,6 +197,7 @@ export function App() {
         {page === "promotions" && <PromotionsPage setNotice={setNotice} />}
         {page === "orders" && <OrdersPage setNotice={setNotice} />}
         {page === "after-sales" && <AfterSalesPage setNotice={setNotice} />}
+        {page === "agent-approvals" && <AgentApprovalsPage setNotice={setNotice} />}
         {page === "users" && <UsersPage setNotice={setNotice} />}
       </main>
     </div>
@@ -854,6 +858,118 @@ function AfterSalesPage({ setNotice }: { setNotice: (notice: Notice) => void }) 
   );
 }
 
+function AgentApprovalsPage({ setNotice }: { setNotice: (notice: Notice) => void }) {
+  const [items, setItems] = useState<AgentPendingApproval[]>([]);
+  const [selected, setSelected] = useState<AgentPendingApproval | null>(null);
+  const [note, setNote] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState("");
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function load() {
+    setLoading(true);
+    setError("");
+    try {
+      setItems(await adminApi.agentApprovals());
+    } catch (err) {
+      setError(getErrorMessage(err, "客服审批列表加载失败。"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function decide(decision: AgentApprovalDecision) {
+    if (!selected) return;
+    const label = decision === "approved" ? "通过" : decision === "rejected" ? "拒绝" : "要求补充";
+    if (!window.confirm(`确认对 ${selected.workflow_id} 执行“${label}”？`)) return;
+    setSubmitting(decision);
+    try {
+      const result = await adminApi.decideAgentApproval(selected.workflow_id, {
+        sessionId: selected.session_id,
+        decision,
+        note: note.trim() || undefined
+      });
+      if (result.status === "blocked") {
+        setNotice({ type: "error", text: `审批被阻断：${result.resume_result.reason}` });
+      } else {
+        setNotice({ type: "success", text: `客服 workflow ${selected.workflow_id} 已${label}，当前状态：${result.status}。` });
+      }
+      setSelected(null);
+      setNote("");
+      await load();
+    } catch (err) {
+      setNotice({ type: "error", text: getErrorMessage(err, "客服审批失败。") });
+    } finally {
+      setSubmitting("");
+    }
+  }
+
+  return (
+    <section className="content-grid detail-layout">
+      <div className="panel">
+        <Toolbar title="客服 Agent 待审批" onRefresh={load} loading={loading}>
+          {null}
+        </Toolbar>
+        <DataState loading={loading} error={error} empty={!items.length} emptyText="暂无待审批的客服 workflow。">
+          <table>
+            <thead><tr><th>Workflow</th><th>订单</th><th>用户</th><th>类型</th><th>状态</th><th>用户确认</th><th>更新时间</th></tr></thead>
+            <tbody>
+              {items.map((item) => (
+                <tr
+                  key={item.workflow_id}
+                  onClick={() => {
+                    setSelected(item);
+                    setNote("");
+                  }}
+                  className={selected?.workflow_id === item.workflow_id ? "selected" : ""}
+                >
+                  <td><strong>{item.workflow_id}</strong><small>{item.session_id}</small></td>
+                  <td>{item.order_no ?? "-"}</td>
+                  <td>{item.user_id || "-"}</td>
+                  <td>{item.workflow_type}</td>
+                  <td><StatusBadge value={item.status} /></td>
+                  <td>{item.user_consented_at ? "已确认" : "未确认"}</td>
+                  <td>{date(item.updated_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </DataState>
+      </div>
+      <aside className="panel detail-panel">
+        <h2>审批处理</h2>
+        {!selected ? <EmptyText text="选择一条客服 workflow 进行审批。" /> : (
+          <>
+            <div className="kv">
+              <span>Workflow</span><strong>{selected.workflow_id}</strong>
+              <span>会话</span><strong>{selected.session_id}</strong>
+              <span>关联订单</span><strong>{selected.order_no ?? "-"}</strong>
+              <span>申请用户</span><strong>{selected.user_id || "-"}</strong>
+              <span>订单状态</span><strong>{selected.order_status ?? "-"}</strong>
+              <span>物流状态</span><strong>{selected.logistics_status ?? "-"}</strong>
+              <span>用户确认</span><strong>{selected.user_consented_at ? "已确认" : "未确认"}</strong>
+              <span>当前状态</span><strong>{selected.status}</strong>
+            </div>
+            <div className="compact-form">
+              <label>审批意见<textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="可选：说明审批依据" /></label>
+              <div className="split-actions">
+                <button className="primary" disabled={!!submitting} onClick={() => decide("approved")}>{submitting === "approved" ? "处理中..." : "通过"}</button>
+                <button disabled={!!submitting} onClick={() => decide("rejected")}>{submitting === "rejected" ? "处理中..." : "拒绝"}</button>
+                <button disabled={!!submitting} onClick={() => decide("needs_more_info")}>{submitting === "needs_more_info" ? "处理中..." : "要求补充"}</button>
+              </div>
+            </div>
+            {!selected.user_consented_at && <p className="empty muted">用户还没有完成 consent，审批会被 Agent 阻断。</p>}
+          </>
+        )}
+      </aside>
+    </section>
+  );
+}
+
 function UsersPage({ setNotice }: { setNotice: (notice: Notice) => void }) {
   const [userId, setUserId] = useState("");
   const [data, setData] = useState<AdminUserBalance | null>(null);
@@ -1018,7 +1134,12 @@ function statusLabel(value: string) {
     ON_SALE: "上架销售",
     OFF_SALE: "暂不上架",
     ACTIVE: "启用",
-    INACTIVE: "停用"
+    INACTIVE: "停用",
+    pending_approval: "待审批",
+    paused: "暂停",
+    completed: "已完成",
+    rejected: "已拒绝",
+    blocked: "已阻断"
   };
   return labels[value] ?? value;
 }

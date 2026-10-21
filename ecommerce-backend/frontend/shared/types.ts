@@ -162,3 +162,15 @@ export type CustomerServiceResponse = {
   actions: { code: string; label: string }[];
   fallback: boolean;
 };
+
+export type CustomerServiceApprovalStatus = {
+  sessionId: string;
+  workflowId: string;
+  status: string;
+  pendingAction: string | null;
+  userConsentedAt: string | null;
+  decidedAt: string | null;
+  decision: string | null;
+  reviewerRole: string | null;
+  message: string;
+};

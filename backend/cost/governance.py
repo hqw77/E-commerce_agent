@@ -1,18 +1,18 @@
 """
-成本治理层 —— 集中计算请求路径、Prompt 片段、Observation 压缩和预算信号。
+成本治理层 -- 集中计算请求路径,Prompt 片段,Observation 压缩和预算信号.
 
-【这个文件是干什么的】
-主链路第⑨步的成本统计：估算这次请求花了多少 token、走了哪条路径（轻量/Workflow/缓存命中）、
-用了哪些框架（LangChain/LangGraph）、是否有预算告警。被 customer_service_agent.chat() 调用。
+[这个文件是干什么的]
+主链路第⑨步的成本统计:估算这次请求花了多少 token,走了哪条路径(轻量/Workflow/缓存命中),
+用了哪些框架(LangChain/LangGraph),是否有预算告警.被 customer_service_agent.chat() 调用.
 
-【核心设计】
-  1. 只做「估算」，不是精确计费（演示用）
-  2. Observation 压缩：工具原始结果不整段塞回模型，只保留状态/风险/下一步摘要
-  3. 安全边界：成本控制不能跳过业务事实核实，也不能跳过 HITL 审批
+[核心设计]
+  1. 只做"估算",不是精确计费(演示用)
+  2. Observation 压缩:工具原始结果不整段塞回模型,只保留状态/风险/下一步摘要
+  3. 安全边界:成本控制不能跳过业务事实核实,也不能跳过 HITL 审批
 
-【注意】
-本文件实际用到 Any + api.schemas + estimate_tokens；
-其余 import（json/os/re/datetime/httpx/yaml/fastapi 等 14 个）是模板残留，未使用。
+[注意]
+本文件实际用到 Any + api.schemas + estimate_tokens;
+其余 import(json/os/re/datetime/httpx/yaml/fastapi 等 14 个)是模板残留,未使用.
 """
 
 from __future__ import annotations
@@ -36,9 +36,9 @@ from tools.planning import estimate_tokens
 
 
 def observation_compression(tool_calls: list[ToolCallTrace]) -> dict[str, Any]:
-    """压缩工具 Observation 摘要，保留状态、风险和下一步，减少上下文成本。"""
+    """压缩工具 Observation 摘要,保留状态,风险和下一步,减少上下文成本."""
     original_tokens = sum(estimate_tokens(call.output_summary) for call in tool_calls)
-    # Observation 进入模型前只保留状态、下一步和风险摘要，不把工具原始结果整段塞回去
+    # Observation 进入模型前只保留状态,下一步和风险摘要,不把工具原始结果整段塞回去
     compressed_tokens = sum(min(12, estimate_tokens(call.output_summary)) for call in tool_calls)
     return {
         "schema_version": "observation_compression_v1",
@@ -67,10 +67,10 @@ def build_cost_summary(
     prompt_fragments: list[dict[str, Any]] | None = None,
     tool_agent_model_calls: int = 0,
 ) -> dict[str, Any]:
-    """生成请求级成本摘要：模型调用数、token 估算、路径类型、框架、告警集中呈现。"""
+    """生成请求级成本摘要:模型调用数,token 估算,路径类型,框架,告警集中呈现."""
     has_workflow = bool(workflow)
     used_langgraph = bool(workflow and workflow.get("used_langgraph"))
-    # 路径类型：缓存命中 → 轻量；走了 workflow → 售后流程；否则轻量工具 Agent
+    # 路径类型:缓存命中 -> 轻量;走了 workflow -> 售后流程;否则轻量工具 Agent
     path_type = "cached_faq_light_path" if cache_hit else "langgraph_after_sale_workflow" if used_langgraph else "light_react_agent"
     fragments = prompt_fragments or []
     context_tokens = estimate_tokens(request.user_message) + sum(estimate_tokens(call.output_summary) for call in tool_calls)

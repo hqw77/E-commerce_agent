@@ -1,6 +1,7 @@
 package com.teachdemo.ecommerce.controller;
 
 import com.teachdemo.ecommerce.dto.ApiResponse;
+import com.teachdemo.ecommerce.dto.CustomerServiceApprovalStatusResponse;
 import com.teachdemo.ecommerce.dto.CustomerServiceChatRequest;
 import com.teachdemo.ecommerce.dto.CustomerServiceResponse;
 import com.teachdemo.ecommerce.dto.CustomerServiceResumeRequest;
@@ -14,9 +15,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @Tag(name = "Customer Service", description = "跨境电商公司商城客服 Agent 网关")
@@ -42,6 +45,14 @@ public class CustomerServiceController {
     public ApiResponse<CustomerServiceResponse> resume(@Valid @RequestBody CustomerServiceResumeRequest request,
                                                        @AuthenticationPrincipal AccountPrincipal principal) {
         return ApiResponse.success(customerServiceGatewayService.resume(request, principal));
+    }
+
+    @GetMapping("/approval-status")
+    @Operation(summary = "Get customer-service workflow approval status")
+    public ApiResponse<CustomerServiceApprovalStatusResponse> approvalStatus(
+        @RequestParam String sessionId,
+        @AuthenticationPrincipal AccountPrincipal principal) {
+        return ApiResponse.success(customerServiceGatewayService.approvalStatus(sessionId, principal));
     }
 
     @ExceptionHandler(CustomerServiceException.class)

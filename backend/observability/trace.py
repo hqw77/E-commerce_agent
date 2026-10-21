@@ -1,15 +1,15 @@
 """
-公开 Trace 层 —— 统一清洗、结构化和存储 Agent 执行事件。
+公开 Trace 层 -- 统一清洗,结构化和存储 Agent 执行事件.
 
-【这个文件是干什么的】
-主链路的可观测性：把每个模块产生的事件（工具调用、RAG 命中、workflow 状态、HITL 边界、
-Hook、成本）整理成统一的公开 trace_event_v1 事件，供前端观察台、Eval 和反馈归因使用。
-被 customer_service_agent.chat() 全程调用（trace_store.add）。
+[这个文件是干什么的]
+主链路的可观测性:把每个模块产生的事件(工具调用,RAG 命中,workflow 状态,HITL 边界,
+Hook,成本)整理成统一的公开 trace_event_v1 事件,供前端观察台,Eval 和反馈归因使用.
+被 customer_service_agent.chat() 全程调用(trace_store.add).
 
-【核心设计：只记公开摘要，不泄露 hidden CoT】
-Trace 不是 hidden CoT。写入前用 sanitize() 递归脱敏：
+[核心设计:只记公开摘要,不泄露 hidden CoT]
+Trace 不是 hidden CoT.写入前用 sanitize() 递归脱敏:
   - 手机号 / 地址 / API key / 系统提示词 / hidden reasoning 全部替换成占位符
-  - 只保留「工具名、命中数、风险等级、pending_action」等复盘需要的公开信号
+  - 只保留"工具名,命中数,风险等级,pending_action"等复盘需要的公开信号
 """
 
 from __future__ import annotations
@@ -23,13 +23,13 @@ from config.settings import TRACE_SCHEMA_VERSION
 
 
 class TraceEventNormalizer:
-    """把模块事件整理成公开 trace schema。
+    """把模块事件整理成公开 trace schema.
 
-    Trace 只记录可展示的执行摘要：工具名、RAG 命中、workflow 状态、HITL 边界、
-    Hooks 和成本路径。它不是 hidden CoT，也不保存系统提示词或原始隐私内容。
+    Trace 只记录可展示的执行摘要:工具名,RAG 命中,workflow 状态,HITL 边界,
+    Hooks 和成本路径.它不是 hidden CoT,也不保存系统提示词或原始隐私内容.
     """
 
-    # 事件类型 → 分类（用于前端观察台按类别分组）
+    # 事件类型 -> 分类(用于前端观察台按类别分组)
     _CATEGORY_BY_EVENT = {
         "runtime_context_built": "runtime_context",
         "context_built": "context",
@@ -58,14 +58,14 @@ class TraceEventNormalizer:
         "cost_recorded": "cost",
         "final_answer_generated": "answer",
     }
-    # 脱敏正则：手机号 / 地址 / 密钥
+    # 脱敏正则:手机号 / 地址 / 密钥
     _PHONE_PATTERN = re.compile(r"\b1[3-9]\d{9}\b")
     _ADDRESS_PATTERN = re.compile(r"(收货地址|地址)\s*[:：]\s*[^,，。;\n]+")
     _SECRET_PATTERN = re.compile(r"(?i)(api[_ -]?key|access[_ -]?token|secret|sk-[A-Za-z0-9_-]{8,})")
 
     @classmethod
     def normalize(cls, *, session_id: str, event_type: str, payload: dict[str, Any], step: int) -> TraceEvent:
-        """把各模块事件整理成统一公开 Trace，并在写入前做安全清洗。"""
+        """把各模块事件整理成统一公开 Trace,并在写入前做安全清洗."""
         safe_payload = cls.sanitize(payload)
         category = cls._CATEGORY_BY_EVENT.get(event_type, "system")
         return TraceEvent(
@@ -98,7 +98,7 @@ class TraceEventNormalizer:
 
     @classmethod
     def sanitize(cls, value: Any) -> Any:
-        """递归清洗 Trace payload，避免系统提示词、隐私和密钥进入公开观察台。"""
+        """递归清洗 Trace payload,避免系统提示词,隐私和密钥进入公开观察台."""
         if isinstance(value, dict):
             return {key: cls.sanitize(item) for key, item in value.items() if key not in {"system_prompt", "hidden_reasoning"}}
         if isinstance(value, list):
@@ -113,7 +113,7 @@ class TraceEventNormalizer:
 
     @staticmethod
     def stage(event_type: str, payload: dict[str, Any]) -> str:
-        """从事件类型推断执行阶段，帮助按 Agent 链路阅读 Trace。"""
+        """从事件类型推断执行阶段,帮助按 Agent 链路阅读 Trace."""
         if event_type.endswith("_started"):
             return "start"
         if event_type.endswith("_finished") or event_type.endswith("_completed"):
@@ -132,7 +132,7 @@ class TraceEventNormalizer:
 
     @staticmethod
     def status(event_type: str, payload: dict[str, Any]) -> str:
-        """把事件转换成稳定状态，便于前端观察台和 Eval 使用。"""
+        """把事件转换成稳定状态,便于前端观察台和 Eval 使用."""
         if payload.get("status"):
             return str(payload["status"])
         if event_type.endswith("_started"):
@@ -145,7 +145,7 @@ class TraceEventNormalizer:
 
     @staticmethod
     def target(event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """抽取事件目标，说明本步处理的是工具、RAG、workflow 还是回答。"""
+        """抽取事件目标,说明本步处理的是工具,RAG,workflow 还是回答."""
         return {
             "type": payload.get("target_type") or ("tool" if event_type.startswith("tool_") else None),
             "name": payload.get("tool_name") or payload.get("workflow_type") or payload.get("target_name"),
@@ -153,7 +153,7 @@ class TraceEventNormalizer:
 
     @staticmethod
     def summary(event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """生成 Trace 摘要，只保留复盘需要的公开信号。"""
+        """生成 Trace 摘要,只保留复盘需要的公开信号."""
         keys = (
             "intent",
             "hit_count",
@@ -171,7 +171,7 @@ class TraceEventNormalizer:
 
     @staticmethod
     def signals(event_type: str, payload: dict[str, Any]) -> list[str]:
-        """提取评测可用的公开信号，避免回归测试依赖 hidden reasoning。"""
+        """提取评测可用的公开信号,避免回归测试依赖 hidden reasoning."""
         signals = [event_type]
         for key in ("tool_name", "workflow_type", "pending_action", "path_type", "hook_type"):
             if payload.get(key):
@@ -182,24 +182,24 @@ class TraceEventNormalizer:
 
 
 class TraceStore:
-    """进程内 Trace 存储：按会话 ID 存事件列表。"""
+    """进程内 Trace 存储:按会话 ID 存事件列表."""
 
     def __init__(self) -> None:
         self._events: dict[str, list[TraceEvent]] = {}
 
     def clear(self) -> None:
-        """清空测试会话 Trace，保证用例之间互不串扰。"""
+        """清空测试会话 Trace,保证用例之间互不串扰."""
         self._events.clear()
 
     def add(self, session_id: str, event_type: str, payload: dict[str, Any]) -> TraceEvent:
-        """追加 Trace 事件，统一补齐 schema、step 和安全摘要。"""
+        """追加 Trace 事件,统一补齐 schema,step 和安全摘要."""
         events = self._events.setdefault(session_id, [])
         event = TraceEventNormalizer.normalize(session_id=session_id, event_type=event_type, payload=payload, step=len(events) + 1)
         events.append(event)
         return event
 
     def list(self, session_id: str) -> list[TraceEvent]:
-        """按会话读取公开 Trace，供观察台、Eval 和反馈归因共用。"""
+        """按会话读取公开 Trace,供观察台,Eval 和反馈归因共用."""
         return list(self._events.get(session_id, []))
 
 
@@ -219,7 +219,7 @@ def record_initial_chat_trace(
     context_report: dict[str, Any],
     compression_report: dict[str, Any],
 ) -> None:
-    """记录进入主链路时的 Runtime Context、上下文预算和路由结果（主链路第⑤步）。"""
+    """记录进入主链路时的 Runtime Context,上下文预算和路由结果(主链路第⑤步)."""
     trace_store.add(
         session_id,
         "runtime_context_built",
@@ -259,13 +259,13 @@ def record_initial_chat_trace(
 
 
 def record_trace_events(session_id: str, events: tuple[tuple[str, dict[str, Any]], ...]) -> None:
-    """把模块返回的公开 trace 事件统一写入 TraceStore。"""
+    """把模块返回的公开 trace 事件统一写入 TraceStore."""
     for event_type, payload in events:
         trace_store.add(session_id, event_type, payload)
 
 
 def public_trace_summary(session_id: str, *, include_hidden_cot_flag: bool = True) -> dict[str, Any]:
-    """生成响应中的公开 trace 摘要，不暴露 hidden CoT 或敏感原文。"""
+    """生成响应中的公开 trace 摘要,不暴露 hidden CoT 或敏感原文."""
     summary: dict[str, Any] = {
         "schema_version": TRACE_SCHEMA_VERSION,
         "event_count": len(trace_store.list(session_id)),

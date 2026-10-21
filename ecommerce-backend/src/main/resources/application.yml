@@ -33,6 +33,9 @@ agent:
     auth-token: ${AGENT_SERVICE_AUTH_TOKEN:}
     connect-timeout-ms: 2000
     read-timeout-ms: 45000
+    # Java 调 Agent 的 HMAC 签名；生产与 Agent 的 AGENT_AUTH_MODE/AGENT_INTERNAL_SECRET 保持一致
+    auth-mode: ${AGENT_AUTH_MODE:off}
+    internal-secret: ${AGENT_INTERNAL_SECRET:}
 
 customer-service:
   runtime-context:

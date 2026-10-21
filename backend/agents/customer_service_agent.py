@@ -1,37 +1,15 @@
-"""Agent 编排层 —— 整个项目的「大脑」。
-
-【这个文件是干什么的】
-这是整个 Agent 的唯一调度中心：它不自己实现 RAG、Tool、Workflow,而是把这些能力「编排」起来——
-先判断用户意图，再按意图分发到不同模块处理，最后统一做安全检查、生成话术、记录 Trace 和成本。
-读这个文件的诀窍:chat() 就是一个巨大的 if/elif 分派表，看懂「什么意图走什么路」就看懂了大半。
-
-【怎么跑起来】
-本文件不直接运行，它是 HTTP 服务的核心。调用链：
-    POST /chat → api/routes.py chat() → 本文件的 Lesson41Agent.chat()
-启动整个服务:cd backend && python main.py（入口在 main.py）
-
-【核心流程：chat() 的 9 步】
-  ① 意图识别（规则兜底 → 模型判断 → guard 覆盖，双保险）
-  ② 上下文组装（抽订单号 + 拼 Runtime Context + Session Memory）
-  ③ 生成路由计划 RoutePlan（决定走 RAG / Tool / Workflow 哪条路）
-  ④ 初始化输出容器（citations / tool_calls / workflow）
-  ⑤ 记初始 Trace
-  ⑥ 按意图分发（核心决策表：RAG / Tool / Workflow / 拦截 / 兜底）
-  ⑦ 安全检查（Tool/RAG 外部文本防注入）
-  ⑧ 生成最终话术
-  ⑨ 收尾记录（记忆 + 钩子 + 成本 + Trace）
-"""
+# Agent 编排层 -- 整个项目的"大脑".
 
 from __future__ import annotations
 
 import os
 from typing import Any
 
-# 从这 30 行 import 就能看出整个项目的模块划分——每个 import 对应一个能力模块：
-#  - api / config        : 接口结构 + 配置（加载 course.env、模型地址等）
-#  - models              : 两个模型客户端（路由模型 + 最终回答模型）
-#  - tools               : 工具层（意图分类、路由计划、实际查订单/物流/退款）
-#  - rag / workflows     : 知识检索 + 售后工作流（LangGraph）
+# 从这 30 行 import 就能看出整个项目的模块划分--每个 import 对应一个能力模块:
+#  - api / config        : 接口结构 + 配置(加载 course.env,模型地址等)
+#  - models              : 两个模型客户端(路由模型 + 最终回答模型)
+#  - tools               : 工具层(意图分类,路由计划,实际查订单/物流/退款)
+#  - rag / workflows     : 知识检索 + 售后工作流(LangGraph)
 #  - context / state     : 上下文组装 + 会话记忆
 #  - safety / hooks      : 注入防御 + 工具调用钩子
 #  - observability / cost: Trace 记录 + 成本治理
@@ -72,36 +50,36 @@ from workflows.after_sale_graph import RECEIVED_RETURN_GRAPH, REFUND_APPROVAL_GR
 from workflows.resume import resume_from_checkpoint
 
 class Lesson41Agent:
-    """综合演练版：复用前面能力，服务大促综合演练和项目验证。"""
+    """综合演练版:复用前面能力,服务大促综合演练和项目验证."""
 
     def __init__(self) -> None:
-        # 初始化三个"能力对象"（都是无状态的客户端/运行器，方法里现用现调）：
-        #  1. route_model_client  —— 用模型判断意图、生成路由（决定走 RAG 还是 Tool）
-        #  2. answer_model_client —— 用模型把检索/工具结果"润色"成最终客服话术
-        #  3. langchain_tool_runner —— 用 LangChain 框架驱动工具调用（选工具、调工具）
+        # 初始化三个"能力对象"(都是无状态的客户端/运行器,方法里现用现调):
+        #  1. route_model_client  -- 用模型判断意图,生成路由(决定走 RAG 还是 Tool)
+        #  2. answer_model_client -- 用模型把检索/工具结果"润色"成最终客服话术
+        #  3. langchain_tool_runner -- 用 LangChain 框架驱动工具调用(选工具,调工具)
         self.route_model_client = RouteModelClient()
         self.answer_model_client = FinalAnswerModelClient()
         self.langchain_tool_runner = LangChainToolRunner()
 
     def chat(self, request: ChatRequest) -> ChatResponse:
-        """编排综合演练聊天链路，串联 Tool、RAG、Workflow/HITL、降级、安全、Trace 和成本治理。"""
+        """编排综合演练聊天链路,串联 Tool,RAG,Workflow/HITL,降级,安全,Trace 和成本治理."""
 
-        # ============ chat() 完整流程（面试讲架构就讲这个）============
-        # 1. 意图识别：规则兜底 → 模型判断 → 规则 guard 覆盖（双保险）
-        # 2. 上下文组装：提取订单号、拼 Runtime Context + Session Memory
-        # 3. 生成路由计划 RoutePlan：决定走 RAG / Tool / Workflow 哪条路
-        # 4. 按意图分发（核心）：下面的 if/elif 就是"决策表"
-        # 5. 安全检查：Tool/RAG 拿到的外部文本做注入检测
-        # 6. 生成最终话术：某些边界场景跳过模型（安全/降级/缓存命中）
-        # 7. 收尾记录：写记忆、执行钩子、算成本、记 Trace
-        # 8. 返回 ChatResponse：把所有中间证据打包给前端
+        # ============ chat() 完整流程(面试讲架构就讲这个)============
+        # 1. 意图识别:规则兜底 -> 模型判断 -> 规则 guard 覆盖(双保险)
+        # 2. 上下文组装:提取订单号,拼 Runtime Context + Session Memory
+        # 3. 生成路由计划 RoutePlan:决定走 RAG / Tool / Workflow 哪条路
+        # 4. 按意图分发(核心):下面的 if/elif 就是"决策表"
+        # 5. 安全检查:Tool/RAG 拿到的外部文本做注入检测
+        # 6. 生成最终话术:某些边界场景跳过模型(安全/降级/缓存命中)
+        # 7. 收尾记录:写记忆,执行钩子,算成本,记 Trace
+        # 8. 返回 ChatResponse:把所有中间证据打包给前端
         load_course_env()
         MESSAGE_COUNT_BY_SESSION[request.session_id] = MESSAGE_COUNT_BY_SESSION.get(request.session_id, 0) + 1
         message_count = MESSAGE_COUNT_BY_SESSION[request.session_id]
-        # ① 意图识别（三步双保险，防止模型判断失误）：
-        #   a. classify_intent：先用规则快速判断一个"兜底意图"（不花钱、快）
-        #   b. plan_intent：再用真实模型判断意图（更准，但要花钱/花时间）
-        #   c. _apply_route_guard：明确的边界规则覆盖模型结果（如明显注入就强制拦截）
+        # ① 意图识别(三步双保险,防止模型判断失误):
+        #   a. classify_intent:先用规则快速判断一个"兜底意图"(不花钱,快)
+        #   b. plan_intent:再用真实模型判断意图(更准,但要花钱/花时间)
+        #   c. _apply_route_guard:明确的边界规则覆盖模型结果(如明显注入就强制拦截)
         fallback_intent = classify_intent(request.user_message)
         route_result = self.route_model_client.plan_intent(request.user_message, fallback_intent=fallback_intent)
         route_result = self._apply_route_guard(
@@ -109,11 +87,11 @@ class Lesson41Agent:
             route_result=route_result,
         )
         intent = route_result.intent
-        # ② 上下文组装：提取订单号 + 拼上下文（Runtime Context + Session Memory）
+        # ② 上下文组装:提取订单号 + 拼上下文(Runtime Context + Session Memory)
         explicit_order_id = extract_order_id(request.user_message)
         order_id, context_report, compression_report = build_context(request, explicit_order_id)
 
-        # ③ 生成路由计划：RoutePlan 声明"这次需要哪些工具/要不要 RAG/要不要工作流"
+        # ③ 生成路由计划:RoutePlan 声明"这次需要哪些工具/要不要 RAG/要不要工作流"
         route_was_guarded = str(route_result.fallback_reason or "").startswith("rule_guard_")
         route_plan = build_route_plan(
             intent=intent,
@@ -121,14 +99,14 @@ class Lesson41Agent:
             order_id=order_id,
             model_used=route_result.used_model and not route_was_guarded,
         )
-        # 运行时上下文（会员等级、风险等级、页面来源）和"是不是在问身份类问题"
+        # 运行时上下文(会员等级,风险等级,页面来源)和"是不是在问身份类问题"
         runtime_context = runtime_context_summary(request)
         uses_runtime_identity = is_runtime_identity_query(request.user_message)
-        # ④ 初始化本轮的"输出容器"：后面每个分支往里面填，最后统一打包返回
-        #   citations  = 知识引用（答案的依据）
-        #   tool_calls = 工具调用记录（查了什么、结果如何）
-        #   workflow   = 售后工作流结果（如果走了 Workflow 分支）
-        #   degraded   = 是否降级（业务服务挂了）
+        # ④ 初始化本轮的"输出容器":后面每个分支往里面填,最后统一打包返回
+        #   citations  = 知识引用(答案的依据)
+        #   tool_calls = 工具调用记录(查了什么,结果如何)
+        #   workflow   = 售后工作流结果(如果走了 Workflow 分支)
+        #   degraded   = 是否降级(业务服务挂了)
         citations: list[Citation] = []
         tool_calls: list[ToolCallTrace] = []
         workflow: dict[str, Any] | None = None
@@ -153,7 +131,7 @@ class Lesson41Agent:
         tool_agent_prompt_fragments: list[dict[str, Any]] = []
         tool_agent_model_calls = 0
 
-        # ⑤ 开始记 Trace：把这次请求的初始信息（意图、上下文、token 估算）先落一份公开日志
+        # ⑤ 开始记 Trace:把这次请求的初始信息(意图,上下文,token 估算)先落一份公开日志
         record_initial_chat_trace(
             session_id=request.session_id,
             runtime_user_id=request.runtime_user_id,
@@ -193,18 +171,18 @@ class Lesson41Agent:
                 },
             )
 
-        # ============ ⑥ 核心：按意图分发（面试必背的"决策表"）============
-        # 意图(intent)             → 走哪条路
+        # ============ ⑥ 核心:按意图分发(面试必背的"决策表")============
+        # 意图(intent)             -> 走哪条路
         # ─────────────────────────────────────────────
-        # uses_runtime_identity    → 直接答（"我是谁/会员等级"这类身份问题）
-        # degradation_request      → 降级（业务服务不可用，转人工）
-        # security_request         → 拦截（检测到 prompt 注入，拒绝回答）
-        # low_confidence_query     → 兜底（知识库没可靠答案，不硬答）
-        # faq_query                → RAG（发票等固定 FAQ，带缓存）
-        # promotion_query          → RAG（活动/优惠规则检索 + 重排）
-        # return_request           → Workflow（签收后退货 SOP）
-        # order/refund/product 等  → Tool（查 Java 后端的订单/物流/退款/商品）
-        # 其他                     → 闲聊兜底
+        # uses_runtime_identity    -> 直接答("我是谁/会员等级"这类身份问题)
+        # degradation_request      -> 降级(业务服务不可用,转人工)
+        # security_request         -> 拦截(检测到 prompt 注入,拒绝回答)
+        # low_confidence_query     -> 兜底(知识库没可靠答案,不硬答)
+        # faq_query                -> RAG(发票等固定 FAQ,带缓存)
+        # promotion_query          -> RAG(活动/优惠规则检索 + 重排)
+        # return_request           -> Workflow(签收后退货 SOP)
+        # order/refund/product 等  -> Tool(查 Java 后端的订单/物流/退款/商品)
+        # 其他                     -> 闲聊兜底
         if uses_runtime_identity:
             answer = runtime_identity_answer(request)
             risk_level = "low"
@@ -262,7 +240,7 @@ class Lesson41Agent:
             next_action = knowledge_result.next_action
             needs_human_approval = knowledge_result.needs_human_approval
         elif intent == "faq_query":
-            # RAG 路线：从知识库检索发票 FAQ，结果带 citations（引用）和缓存标记
+            # RAG 路线:从知识库检索发票 FAQ,结果带 citations(引用)和缓存标记
             knowledge_result = invoice_faq_result(request.session_id)
             record_trace_events(request.session_id, knowledge_result.trace_events)
             answer = knowledge_result.answer
@@ -273,7 +251,7 @@ class Lesson41Agent:
             cache_hit = knowledge_result.cache_hit
             rag_retrieval = knowledge_result.retrieval_debug
         elif intent == "promotion_query":
-            # RAG 路线（促销规则）：混合检索 + 重排；没检索到就降级为低置信
+            # RAG 路线(促销规则):混合检索 + 重排;没检索到就降级为低置信
             knowledge_result = promotion_policy_result(request.session_id, request.user_message)
             if not knowledge_result.citations:
                 intent = "low_confidence_query"
@@ -286,7 +264,7 @@ class Lesson41Agent:
             next_action = knowledge_result.next_action
             needs_human_approval = knowledge_result.needs_human_approval
         elif intent == "return_request":
-            # Workflow 路线：签收后退货。先查订单，再跑 LangGraph 工作流判断资格
+            # Workflow 路线:签收后退货.先查订单,再跑 LangGraph 工作流判断资格
             if clarification:
                 answer = clarification.message
                 risk_level = "high"
@@ -353,7 +331,7 @@ class Lesson41Agent:
                     needs_human_approval = eligible
                     trace_store.add(request.session_id, "received_return_workflow_completed", {"session_id": request.session_id, **workflow})
         elif intent in {"order_query", "refund_status_query", "refund_request", "product_query"}:
-            # Tool 路线：需要查真实业务数据（订单/物流/退款/商品），用 LangChain 工具运行器调用
+            # Tool 路线:需要查真实业务数据(订单/物流/退款/商品),用 LangChain 工具运行器调用
             tool_result = self.langchain_tool_runner.run(
                 request=request,
                 intent=intent,
@@ -534,7 +512,7 @@ class Lesson41Agent:
                 if product_call.status == "success":
                     verified_product_name = str(product_call.arguments.get("product_name") or "") or None
             elif intent == "refund_request":
-                # 高风险边界：退款只做"资格判断"，不执行资金动作，必须过人工审批
+                # 高风险边界:退款只做"资格判断",不执行资金动作,必须过人工审批
                 citations.append(REFUND_POLICY)
                 trace_store.add(
                     request.session_id,
@@ -615,16 +593,16 @@ class Lesson41Agent:
                 next_action = "ask_clarification" if detail_call.error_type == "missing_order_id" else "transfer_to_human"
                 needs_human_approval = False
         else:
-            # 兜底：既不是知识问题也不是业务问题，走通用闲聊回答
+            # 兜底:既不是知识问题也不是业务问题,走通用闲聊回答
             answer = general_chat_answer(request.user_message)
             risk_level = "low"
             next_action = "answer_user"
             needs_human_approval = False
 
-        # ============ ⑦ 安全检查（横切能力，包裹在主流程外面）============
-        # Tool/RAG 文本也是外部数据，进入最终模型前必须按来源做污染检查。
-        # 为什么要检查：外部数据（商品描述、订单备注、知识文档）可能被塞进恶意指令，
-        # 直接喂给模型会被"提示注入"。这里标记污染并做脱敏/隔离。
+        # ============ ⑦ 安全检查(横切能力,包裹在主流程外面)============
+        # Tool/RAG 文本也是外部数据,进入最终模型前必须按来源做污染检查.
+        # 为什么要检查:外部数据(商品描述,订单备注,知识文档)可能被塞进恶意指令,
+        # 直接喂给模型会被"提示注入".这里标记污染并做脱敏/隔离.
         external_reports: list[dict[str, Any]] = []
         for call in tool_calls:
             report = inspect_source("tool_result", call.output_summary)
@@ -675,8 +653,8 @@ class Lesson41Agent:
             )
 
         # ============ ⑧ 生成最终话术 ============
-        # 把前面拿到的 answer（可能来自 Tool/RAG/Workflow/兜底）交给最终模型润色，
-        # 但安全/降级/缓存命中/澄清这些边界场景会跳过模型（保留确定性，见 _compose_final_answer）
+        # 把前面拿到的 answer(可能来自 Tool/RAG/Workflow/兜底)交给最终模型润色,
+        # 但安全/降级/缓存命中/澄清这些边界场景会跳过模型(保留确定性,见 _compose_final_answer)
         model_answer = self._compose_final_answer(
             request=request,
             intent=intent,
@@ -698,7 +676,7 @@ class Lesson41Agent:
             and not cache_hit
             and (model_answer.used_model or os.getenv("AGENT_DISABLE_LLM") == "1")
         ):
-            # 在线缓存模型基于证据生成的最终话术；离线测试则缓存显式兜底话术。
+            # 在线缓存模型基于证据生成的最终话术;离线测试则缓存显式兜底话术.
             COMMON_HIT_CACHE["faq:invoice_issue"] = {
                 "answer": answer,
                 "citation": "invoice_issue",
@@ -726,9 +704,9 @@ class Lesson41Agent:
                 },
             )
 
-        # ============ ⑨ 收尾记录（都不影响主流程，是"横切能力"）============
-        #   - update_memory      : 把本轮订单/商品写进会话记忆，下次能想起来
-        #   - hooks.on_completion : 完成钩子（安全摘要等）
+        # ============ ⑨ 收尾记录(都不影响主流程,是"横切能力")============
+        #   - update_memory      : 把本轮订单/商品写进会话记忆,下次能想起来
+        #   - hooks.on_completion : 完成钩子(安全摘要等)
         #   - build_cost_summary  : 统计这轮花了多少 token/钱
         memory = update_memory(
             session_id=request.session_id,
@@ -887,11 +865,11 @@ class Lesson41Agent:
         enable_reasoning: bool = False,
         context_report: dict[str, Any],
     ) -> FinalAnswerModelResult:
-        """让真实模型生成最终话术，但安全、低置信、降级和缓存命中保留确定性边界。
+        """让真实模型生成最终话术,但安全,低置信,降级和缓存命中保留确定性边界.
 
-        关键设计：不是所有情况都调用模型。以下情况"跳过模型"，直接返回确定性 answer：
+        关键设计:不是所有情况都调用模型.以下情况"跳过模型",直接返回确定性 answer:
           - runtime identity / 澄清 / 安全 / 低置信 / 降级 / 缓存命中
-        为什么跳过：这些场景答案必须确定、可控、不花模型钱，交给模型反而可能胡说。
+        为什么跳过:这些场景答案必须确定,可控,不花模型钱,交给模型反而可能胡说.
         """
         skip_reason: str | None = None
         if skip_final_model:
@@ -944,10 +922,10 @@ class Lesson41Agent:
         user_message: str,
         route_result: ModelRouteResult,
     ) -> ModelRouteResult:
-        """仅让明确边界覆盖模型，宽泛关键词只用于模型不可用时的 fallback。
+        """仅让明确边界覆盖模型,宽泛关键词只用于模型不可用时的 fallback.
 
-        这是"规则 guard"：模型判断可能有误，但某些输入（如明显的注入攻击、明确的
-        高风险词）必须被规则强制覆盖，不能交给模型决定。
+        这是"规则 guard":模型判断可能有误,但某些输入(如明显的注入攻击,明确的
+        高风险词)必须被规则强制覆盖,不能交给模型决定.
         """
         guard_intent = classify_guard_intent(user_message)
         if guard_intent is None or route_result.intent == guard_intent:
@@ -962,9 +940,9 @@ class Lesson41Agent:
         )
 
     def resume(self, request: ChatResumeRequest) -> ChatResumeResponse:
-        """恢复暂停的 HITL workflow，具体校验和幂等由 workflow 层负责。
+        """恢复暂停的 HITL workflow,具体校验和幂等由 workflow 层负责.
 
-        售后流程跑到"等人工审批"时会被挂起，用户/管理员通过 /chat/resume 恢复。
-        这里只转发给 workflow 层，校验和幂等（防止重复审批）都在 workflows/resume.py。
+        售后流程跑到"等人工审批"时会被挂起,用户/管理员通过 /chat/resume 恢复.
+        这里只转发给 workflow 层,校验和幂等(防止重复审批)都在 workflows/resume.py.
         """
         return resume_from_checkpoint(request, trace_store)

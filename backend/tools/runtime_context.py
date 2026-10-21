@@ -1,16 +1,16 @@
 """
-Runtime Context 工具函数 —— 从当前用户上下文读取订单事实，并保护归属边界。
+Runtime Context 工具函数 -- 从当前用户上下文读取订单事实,并保护归属边界.
 
-【这个文件是干什么的】
-一组纯函数（无副作用），负责：
-  1. 身份问答（"我是谁"）→ 从系统注入的 Runtime Context 答，不从用户文本猜
-  2. 订单字段解析（订单号/用户ID/状态/物流/商品名）→ 兼容多种字段命名
-  3. 状态枚举 → 中文客服口径（如 SHIPPED → "已发货"）
+[这个文件是干什么的]
+一组纯函数(无副作用),负责:
+  1. 身份问答("我是谁")-> 从系统注入的 Runtime Context 答,不从用户文本猜
+  2. 订单字段解析(订单号/用户ID/状态/物流/商品名)-> 兼容多种字段命名
+  3. 状态枚举 -> 中文客服口径(如 SHIPPED -> "已发货")
   4. 闲聊兜底
-被 tool_runtime.py、context/builder.py、workflows 等多处调用。
+被 tool_runtime.py,context/builder.py,workflows 等多处调用.
 
-【核心设计：归属边界】
-find_context_order 只在「当前用户上下文」里找订单，避免凭用户输入的订单号越权查别人的订单。
+[核心设计:归属边界]
+find_context_order 只在"当前用户上下文"里找订单,避免凭用户输入的订单号越权查别人的订单.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from api.schemas import *
 
 
 def runtime_context_summary(request: ChatRequest) -> dict[str, Any]:
-    """返回前端可观察的 Runtime Context 摘要，区分「模型可见」和「系统边界」字段。"""
+    """返回前端可观察的 Runtime Context 摘要,区分"模型可见"和"系统边界"字段."""
     return {
         "user_id": request.runtime_user_id,
         "nickname": request.runtime_nickname,
@@ -31,7 +31,7 @@ def runtime_context_summary(request: ChatRequest) -> dict[str, Any]:
             "nickname": request.runtime_nickname,
             "member_level": request.runtime_member_level,
         },
-        "system_only": {            # 仅系统使用，不进模型上下文
+        "system_only": {            # 仅系统使用,不进模型上下文
             "user_id": request.runtime_user_id,
             "risk_level": request.runtime_risk_level,
         },
@@ -40,7 +40,7 @@ def runtime_context_summary(request: ChatRequest) -> dict[str, Any]:
 
 
 def is_runtime_identity_query(user_message: str) -> bool:
-    """识别需要直接读取当前登录 Runtime Context 的身份问题（"我是谁"）。"""
+    """识别需要直接读取当前登录 Runtime Context 的身份问题("我是谁")."""
     normalized = user_message.strip().replace("？", "?")
     return any(
         keyword in normalized
@@ -57,7 +57,7 @@ def is_runtime_identity_query(user_message: str) -> bool:
 
 
 def runtime_identity_answer(request: ChatRequest) -> str:
-    """用系统注入的 Runtime Context 回答身份问题，不从用户文本里猜身份。"""
+    """用系统注入的 Runtime Context 回答身份问题,不从用户文本里猜身份."""
     nickname = request.runtime_nickname or "当前用户"
     member_level = request.runtime_member_level or "unknown"
     risk_level = request.runtime_risk_level or "unknown"
@@ -69,7 +69,7 @@ def runtime_identity_answer(request: ChatRequest) -> str:
 
 
 def general_chat_answer(user_message: str) -> str:
-    """普通咨询也要返回可直接给用户看的客服话术，不能暴露调试占位说明。"""
+    """普通咨询也要返回可直接给用户看的客服话术,不能暴露调试占位说明."""
     normalized = user_message.strip().replace("？", "?")
     if any(keyword in normalized for keyword in ("你是谁", "你是什么", "你能做什么", "介绍一下你")):
         return (
@@ -84,24 +84,24 @@ def general_chat_answer(user_message: str) -> str:
 
 
 def as_order_list(value: Any) -> list[dict[str, Any]]:
-    """兼容 runtime_context 中的当前用户订单列表，只保留字典型订单快照。"""
+    """兼容 runtime_context 中的当前用户订单列表,只保留字典型订单快照."""
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, dict)]
 
 
 def order_no(order: dict[str, Any]) -> str:
-    """从不同字段命名中读取订单号，兼容和业务 DTO。"""
+    """从不同字段命名中读取订单号,兼容和业务 DTO."""
     return str(order.get("orderNo") or order.get("order_id") or "").strip()
 
 
 def order_user_id(order: dict[str, Any]) -> str:
-    """读取订单归属用户，用于防止跨账号订单被工具或上下文误用。"""
+    """读取订单归属用户,用于防止跨账号订单被工具或上下文误用."""
     return str(order.get("userId") or order.get("user_id") or "").strip()
 
 
 def order_status(order: dict[str, Any]) -> str:
-    """归一化履约状态，让售后 workflow 能用稳定字段判断风险路径。"""
+    """归一化履约状态,让售后 workflow 能用稳定字段判断风险路径."""
     value = str(
         order.get("fulfillmentStatus")
         or order.get("fulfillment_status")
@@ -117,7 +117,7 @@ def order_status(order: dict[str, Any]) -> str:
 
 
 def order_status_label(order: dict[str, Any]) -> str:
-    """把订单履约枚举转成用户能直接理解的客服口径（中文标签）。"""
+    """把订单履约枚举转成用户能直接理解的客服口径(中文标签)."""
     status = order_status(order).upper()
     labels = {
         "PENDING_PAYMENT": "待付款",
@@ -140,7 +140,7 @@ def order_status_label(order: dict[str, Any]) -> str:
 
 
 def logistics_status_from_order(order: dict[str, Any]) -> str:
-    """从订单快照推断物流状态，实时系统不可用时也只给安全摘要。"""
+    """从订单快照推断物流状态,实时系统不可用时也只给安全摘要."""
     direct_value = str(order.get("logisticsStatus") or order.get("logistics_status") or "").strip()
     if direct_value:
         return direct_value
@@ -155,7 +155,7 @@ def logistics_status_from_order(order: dict[str, Any]) -> str:
 
 
 def logistics_status_label(order: dict[str, Any]) -> str:
-    """把物流枚举转成面向用户的自然中文状态。"""
+    """把物流枚举转成面向用户的自然中文状态."""
     status = logistics_status_from_order(order).upper()
     labels = {
         "NOT_SHIPPED": "暂未发货",
@@ -171,7 +171,7 @@ def logistics_status_label(order: dict[str, Any]) -> str:
 
 
 def item_names(order: dict[str, Any]) -> list[str]:
-    """提取订单商品名，供工具摘要、Trace 和回答使用。"""
+    """提取订单商品名,供工具摘要,Trace 和回答使用."""
     raw_items = order.get("items")
     if isinstance(raw_items, list):
         names: list[str] = []
@@ -188,7 +188,7 @@ def item_names(order: dict[str, Any]) -> list[str]:
 
 
 def find_context_order(context: dict[str, Any] | None, target_order_no: str) -> dict[str, Any] | None:
-    """只在当前用户上下文中查找订单，避免凭用户输入订单号越权。"""
+    """只在当前用户上下文中查找订单,避免凭用户输入订单号越权."""
     if not isinstance(context, dict):
         return None
     target = target_order_no.lower()

@@ -5,10 +5,13 @@ __pycache__/
 .venv/
 venv/
 env/
+.pytest_cache/
+*.db
 
 # 环境变量 / 密钥 —— 绝对不能提交
 course.env
 .env
+.env.demo
 *.env
 
 # IDE
@@ -19,6 +22,7 @@ course.env
 # Node（前端）
 node_modules/
 dist/
+*.tsbuildinfo
 
 # 构建产物 / 大文件
 *.tar.gz

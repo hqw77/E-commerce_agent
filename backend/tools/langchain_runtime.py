@@ -1,29 +1,29 @@
 """
-Tool 路的执行层 —— 用 LangChain create_agent 驱动「模型选工具 + 调工具」的只读闭环。
+Tool 路的执行层 -- 用 LangChain create_agent 驱动"模型选工具 + 调工具"的只读闭环.
 
-【这个文件是干什么的】
-主链路第 ⑥ 步分派到 Tool 路后，由本文件执行。它回答：给定 RoutePlan 需要的工具白名单，
-怎么让模型自主选择工具、调用工具、拿到结果、最终生成回答。
-被 customer_service_agent.chat() 调用，run() 是唯一对外入口。
+[这个文件是干什么的]
+主链路第 ⑥ 步分派到 Tool 路后,由本文件执行.它回答:给定 RoutePlan 需要的工具白名单,
+怎么让模型自主选择工具,调用工具,拿到结果,最终生成回答.
+被 customer_service_agent.chat() 调用,run() 是唯一对外入口.
 
-【怎么跑起来】
-调用链：
+[怎么跑起来]
+调用链:
     customer_service_agent.chat()
-      → LangChainToolRunner.run()   ← 本文件入口
-        → create_agent（LangChain）让模型自主调工具
-          → 4 个内部函数 → tools/tool_runtime.py → integrations/ecommerce_client.py → Java 后端
+      -> LangChainToolRunner.run()   <- 本文件入口
+        -> create_agent(LangChain)让模型自主调工具
+          -> 4 个内部函数 -> tools/tool_runtime.py -> integrations/ecommerce_client.py -> Java 后端
 
-【核心流程：run() 的闭环】
-  ① 入口检查：required_tools 为空 或 模型不可用 → 直接跳过（不调模型）
-  ② 参数校验：模型给的 order_id/keyword 必须等于受控 RoutePlan 的 expected_xxx，否则阻止执行
-  ③ 工具白名单：从 required_tools 里挑出允许的工具，模型不能「发明」新工具
-  ④ create_agent：让模型自主决定调哪个工具、调几次，直到给出最终回答
-  ⑤ 收集结果：把 tool_calls、order、products、最终 answer 打包返回
+[核心流程:run() 的闭环]
+  ① 入口检查:required_tools 为空 或 模型不可用 -> 直接跳过(不调模型)
+  ② 参数校验:模型给的 order_id/keyword 必须等于受控 RoutePlan 的 expected_xxx,否则阻止执行
+  ③ 工具白名单:从 required_tools 里挑出允许的工具,模型不能"发明"新工具
+  ④ create_agent:让模型自主决定调哪个工具,调几次,直到给出最终回答
+  ⑤ 收集结果:把 tool_calls,order,products,最终 answer 打包返回
 
-【关键设计：只读工具 + 参数受控】
-4 个工具全是「只读」（查订单/物流/退款/商品），高风险动作（退款/退货）留给 Workflow。
-模型虽然能自主选工具，但参数受控——order_id 和 keyword 必须和 RoutePlan 确认的一致，
-防止模型「张冠李戴」查错订单。
+[关键设计:只读工具 + 参数受控]
+4 个工具全是"只读"(查订单/物流/退款/商品),高风险动作(退款/退货)留给 Workflow.
+模型虽然能自主选工具,但参数受控--order_id 和 keyword 必须和 RoutePlan 确认的一致,
+防止模型"张冠李戴"查错订单.
 """
 
 from __future__ import annotations
@@ -47,21 +47,21 @@ from tools.tool_runtime import get_order_detail, get_order_logistics, get_refund
 
 
 class OrderIdInput(BaseModel):
-    """工具入参：订单号。必须来自用户输入或受控上下文。"""
+    """工具入参:订单号.必须来自用户输入或受控上下文."""
     order_id: str = Field(..., description="跨境电商订单号，必须来自用户输入或受控上下文")
 
 
 class ProductQueryInput(BaseModel):
-    """工具入参：商品关键词。"""
+    """工具入参:商品关键词."""
     keyword: str = Field(..., description="用户明确提到的商品关键词，例如降噪耳机")
 
 
 @dataclass
 class LangChainToolResult:
-    """run() 的返回结果，打包给编排层用。"""
+    """run() 的返回结果,打包给编排层用."""
     executed: bool = False                      # 是否真的执行了工具
     answer: str | None = None                   # 模型最终回答
-    order: dict[str, Any] | None = None         # 查到的订单（若有）
+    order: dict[str, Any] | None = None         # 查到的订单(若有)
     products: list[dict[str, Any]] = field(default_factory=list)  # 查到的商品
     tool_calls: list[ToolCallTrace] = field(default_factory=list)  # 工具调用记录
     state: dict[str, Any] = field(default_factory=dict)  # 调试状态
@@ -70,13 +70,13 @@ class LangChainToolResult:
 
 
 class LangChainToolRunner:
-    """让模型只在 RoutePlan 白名单内选择只读工具，高风险动作仍留给 Workflow。"""
+    """让模型只在 RoutePlan 白名单内选择只读工具,高风险动作仍留给 Workflow."""
 
     def __init__(self, manager: PromptManager = prompt_manager) -> None:
         self.prompt_manager = manager
 
     def can_call_model(self) -> bool:
-        """检查能否调用模型（env 开关 / key）。"""
+        """检查能否调用模型(env 开关 / key)."""
         load_course_env()
         return os.getenv("AGENT_DISABLE_LLM") != "1" and not api_key_is_missing(
             os.getenv("AGENT_OPENAI_API_KEY")
@@ -94,21 +94,21 @@ class LangChainToolRunner:
         model: Any | None = None,
     ) -> LangChainToolResult:
         """
-        主入口：执行「模型选工具 → 调工具 → 拿结果」的只读闭环。
-        required_tools 是 RoutePlan 白名单；expected_order_id/keyword 是受控参数，用于校验模型。
+        主入口:执行"模型选工具 -> 调工具 -> 拿结果"的只读闭环.
+        required_tools 是 RoutePlan 白名单;expected_order_id/keyword 是受控参数,用于校验模型.
         """
-        # ① 入口检查：没工具可调 或 模型不可用 → 跳过
+        # ① 入口检查:没工具可调 或 模型不可用 -> 跳过
         if not required_tools:
             return LangChainToolResult(state=self._skipped_state("no_executable_tool", required_tools))
         if model is None and not self.can_call_model():
             return LangChainToolResult(state=self._skipped_state("model_config_missing", required_tools))
 
-        # 捕获变量：内部函数往里填，最后打包返回
+        # 捕获变量:内部函数往里填,最后打包返回
         captured_calls: list[ToolCallTrace] = []
         captured_order: dict[str, Any] | None = None
         captured_products: list[dict[str, Any]] = []
 
-        # ② 参数校验：订单号必须和 RoutePlan 确认的一致，否则阻止执行
+        # ② 参数校验:订单号必须和 RoutePlan 确认的一致,否则阻止执行
         def route_plan_mismatch(tool_name: str, order_id: str) -> ToolCallTrace | None:
             if expected_order_id is None or order_id == expected_order_id:
                 return None
@@ -126,7 +126,7 @@ class LangChainToolRunner:
             captured_calls.append(call)
             return call
 
-        # ② 参数校验：商品关键词同理
+        # ② 参数校验:商品关键词同理
         def product_route_plan_mismatch(keyword: str) -> ToolCallTrace | None:
             if expected_product_keyword is None or product_query_keyword(keyword) == product_query_keyword(expected_product_keyword):
                 return None
@@ -144,7 +144,7 @@ class LangChainToolRunner:
             captured_calls.append(call)
             return call
 
-        # ③ 4 个工具的实现函数（模式一致：校验参数 → pre hook → 调 tool_runtime → post hook → 捕获）
+        # ③ 4 个工具的实现函数(模式一致:校验参数 -> pre hook -> 调 tool_runtime -> post hook -> 捕获)
             # 查询订单详情
         def query_order_detail(order_id: str) -> str:    
             nonlocal captured_order
@@ -167,7 +167,7 @@ class LangChainToolRunner:
             mismatch = route_plan_mismatch("get_order_logistics", order_id)
             if mismatch:
                 return json.dumps({"status": "error", "summary": mismatch.output_summary}, ensure_ascii=False)
-            # 查物流前先查订单（物流依赖订单存在）
+            # 查物流前先查订单(物流依赖订单存在)
             hooks.pre_tool_call("get_order_detail", {"order_id": order_id}, request.runtime_user_id)
             order, detail_call = get_order_detail(order_id, request.runtime_user_id, request.runtime_context)
             hooks.post_tool_call(detail_call)
@@ -215,7 +215,7 @@ class LangChainToolRunner:
             captured_calls.append(call)
             return json.dumps({"status": call.status, "summary": call.output_summary}, ensure_ascii=False)
 
-        # ③ 工具白名单：把上面 4 个函数包装成 StructuredTool，模型只能从 required_tools 里选
+        # ③ 工具白名单:把上面 4 个函数包装成 StructuredTool,模型只能从 required_tools 里选
         tool_catalog: dict[str, BaseTool] = {
             "get_order_detail": StructuredTool.from_function(
                 func=query_order_detail,
@@ -257,10 +257,10 @@ class LangChainToolRunner:
         prompt_fragments = self.prompt_manager.selection_summary(fragments, phase="tool_agent")
         tool_model = model or self._create_chat_model()
 
-        # ④ 核心闭环：create_agent 让模型自主选工具、调工具，多轮直到给出最终回答
+        # ④ 核心闭环:create_agent 让模型自主选工具,调工具,多轮直到给出最终回答
         try:
             agent = create_agent(model=tool_model, tools=tools, system_prompt=system_prompt)
-            # 把受控参数显式写进用户消息，告诉模型「订单号/关键词已经确认好了」
+            # 把受控参数显式写进用户消息,告诉模型"订单号/关键词已经确认好了"
             controlled_user_message = request.user_message
             if expected_order_id:
                 controlled_user_message += f"\n\n受控 RoutePlan 已确认订单号：{expected_order_id}"
@@ -271,7 +271,7 @@ class LangChainToolRunner:
                 config={"recursion_limit": 4},
             )
         except Exception as exc:
-            # 模型调用异常：返回已捕获的工具调用 + 跳过状态
+            # 模型调用异常:返回已捕获的工具调用 + 跳过状态
             return LangChainToolResult(
                 executed=bool(captured_calls),
                 order=captured_order,
@@ -285,7 +285,7 @@ class LangChainToolRunner:
                 prompt_fragments=prompt_fragments,
             )
 
-        # ⑤ 收集结果：从消息流里提取选中的工具、最终回答、调用次数
+        # ⑤ 收集结果:从消息流里提取选中的工具,最终回答,调用次数
         messages: list[BaseMessage] = list(result.get("messages", []))
         selected_tools = [
             str(tool_call.get("name"))
@@ -335,7 +335,7 @@ class LangChainToolRunner:
 
     @staticmethod
     def _skipped_state(reason: str, required_tools: list[str]) -> dict[str, Any]:
-        """构建「跳过执行」时的调试状态（没走模型/没调工具）。"""
+        """构建"跳过执行"时的调试状态(没走模型/没调工具)."""
         return {
             "create_agent": False,
             "skip_reason": reason,
