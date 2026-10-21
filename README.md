@@ -343,7 +343,7 @@ Agent 交互式文档：`http://localhost:8000/docs`
 | `AGENT_OPENAI_BASE_URL` | 模型接口地址 |
 | `AGENT_OPENAI_MODEL` | 聊天模型 |
 
-`AGENT_ENV=production` 时，`backend/config/production.py` 会强制校验鉴权、密钥、数据库、审批模式和课程开关，缺一项直接拒绝启动。
+`AGENT_ENV=production` 时，`backend/config/production.py` 会强制校验鉴权、密钥、数据库、审批模式和演示/离线开关，缺一项直接拒绝启动。
 
 ---
 
@@ -440,7 +440,7 @@ npm run dev
 - 商城 Java 会话仍在内存，重启会丢；生产应迁 Redis/MySQL。
 - 转人工已落 `agent_handoff_ticket` 工单，但尚未接外部 ITSM/工单队列。
 - 退款只记录审批结果，不执行真实资金动作；真实执行需要 outbox + 对账。
-- 课程种子数据、固定日期仍需从生产包彻底移除。
+- 演示种子数据、业务日期仍需从生产包彻底移除。
 - 可观测只有日志和公开 Trace，没有完整指标/告警。
 - 请求级 deadline、上游重试/熔断、SSE 流式仍待补。
 - 多副本部署前需要把 nonce 缓存迁 Redis，并补 Alembic 迁移。

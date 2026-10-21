@@ -39,7 +39,7 @@ from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
 from api.schemas import ChatRequest, Intent, ToolCallTrace
-from config.settings import api_key_is_missing, load_course_env, openai_base_url, openai_model_name
+from config.settings import api_key_is_missing, load_agent_env, openai_base_url, openai_model_name
 from hooks.manager import HookManager
 from integrations.ecommerce_client import product_query_keyword
 from prompts.loader import PromptManager, prompt_manager
@@ -77,7 +77,7 @@ class LangChainToolRunner:
 
     def can_call_model(self) -> bool:
         """检查能否调用模型(env 开关 / key)."""
-        load_course_env()
+        load_agent_env()
         return os.getenv("AGENT_DISABLE_LLM") != "1" and not api_key_is_missing(
             os.getenv("AGENT_OPENAI_API_KEY")
         )

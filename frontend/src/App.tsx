@@ -4,7 +4,7 @@ import { EvaluationPanel } from "./components/EvaluationPanel";
 import { MessageList } from "./components/MessageList";
 import { SampleQuestions } from "./components/SampleQuestions";
 import { TracePanel } from "./components/TracePanel";
-import { getLessonScenarioSet } from "./data/demoScenarios";
+import { getDemoScenarioSet } from "./data/demoScenarios";
 import { useAgentChat } from "./hooks/useAgentChat";
 import type { AgentCapabilityManifest, AgentFeatureKey, ChatResponse, DemoUser, DemoUserCreatePayload, ReasoningView } from "./types/api";
 
@@ -43,8 +43,8 @@ export default function App() {
     submitFeedback,
   } = useAgentChat();
   const scenarioSet = useMemo(
-    () => getLessonScenarioSet(selectedUserId, agentCapabilities.lesson?.number),
-    [selectedUserId, agentCapabilities.lesson?.number],
+    () => getDemoScenarioSet(selectedUserId),
+    [selectedUserId],
   );
   const [draft, setDraft] = useState(scenarioSet.defaultQuestion);
   const [toggles, setToggles] = useState<LearningToggles>({
@@ -221,17 +221,17 @@ function AgentTargetBanner({
   capabilities: AgentCapabilityManifest;
   error?: string;
 }) {
-  const lessonTitle = capabilities.lesson?.title || capabilities.agent?.version || "目标 Agent";
-  const lessonId = capabilities.lesson?.id || capabilities.agent?.version || "unknown";
+  const projectTitle = capabilities.project?.title || capabilities.agent?.version || "目标 Agent";
+  const projectId = capabilities.project?.id || capabilities.agent?.version || "unknown";
   const enabledFeatures = Object.entries(capabilities.features ?? {}).filter(([, enabled]) => enabled).length;
   const totalFeatures = Object.keys(capabilities.features ?? {}).length;
 
   return (
     <section className="capability-banner" aria-label="当前 Agent 能力配置">
       <div>
-        <strong>{lessonTitle}</strong>
+        <strong>{projectTitle}</strong>
         <span>
-          {lessonId} · {baseUrl}
+          {projectId} · {baseUrl}
         </span>
       </div>
       <div className="capability-banner-meta">

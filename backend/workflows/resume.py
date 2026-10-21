@@ -40,7 +40,7 @@ from workflows import tokens as resume_tokens
 
 
 def build_resume_token(session_id: str, workflow_id: str, order_id: str | None) -> str:
-    """生成 HITL 恢复令牌;hmac 模式为一次性签名令牌,legacy 模式保留课程格式."""
+    """生成 HITL 恢复令牌;hmac 模式为一次性签名令牌,legacy 模式保留兼容格式."""
     return resume_tokens.issue_resume_token(
         session_id=session_id,
         workflow_id=workflow_id,

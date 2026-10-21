@@ -8,13 +8,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-# 仅用于本地自检:显式开启课程离线替身,生产环境禁止
+# 仅用于本地自检:显式开启离线演示替身,生产环境禁止
 os.environ.setdefault("AGENT_OFFLINE_RAG", "1")
 os.environ.setdefault("AGENT_OFFLINE_FACTS", "1")
+os.environ.setdefault("AGENT_BUSINESS_DATE", "2026-07-15")
 os.environ.setdefault("AGENT_DISABLE_LLM", "1")
 
 from evals.runner import EvalRunner  # noqa: E402
-from agents.customer_service_agent import Lesson41Agent  # noqa: E402
+from agents.customer_service_agent import AfterSaleAgent  # noqa: E402
 from config.settings import CASES_PATH  # noqa: E402
 from db.database import init_db, state_backend  # noqa: E402
 
@@ -22,7 +23,7 @@ from db.database import init_db, state_backend  # noqa: E402
 if __name__ == "__main__":
     if state_backend() == "sql":
         init_db()
-    report = EvalRunner(Lesson41Agent(), CASES_PATH).run()
+    report = EvalRunner(AfterSaleAgent(), CASES_PATH).run()
     print(f"total={report.total} passed={report.passed} failed={report.failed}")
     for result in report.results:
         if not result.passed:

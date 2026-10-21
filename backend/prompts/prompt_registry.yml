@@ -1,5 +1,5 @@
 schema_version: prompt_registry_v1
-description: 综合演练使用的轻量 Prompt 注册表，只管理稳定规则片段。
+description: 售后 Agent 使用的轻量 Prompt 注册表，只管理稳定规则片段。
 
 prompts:
   - name: prompt_security

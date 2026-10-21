@@ -22,7 +22,7 @@ const ECOMMERCE_BASE_URL = import.meta.env.VITE_ECOMMERCE_BASE_URL ?? "http://lo
 
 const DEFAULT_AGENT_CAPABILITIES: AgentCapabilityManifest = {
   schema_version: "agent_capabilities_v1",
-  lesson: {
+  project: {
     id: "default-agent",
     title: "默认 Agent",
     summary: "目标 Agent 未提供能力声明时，调试后台只保留最小聊天入口。",

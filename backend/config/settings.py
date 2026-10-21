@@ -1,13 +1,13 @@
 """
-配置中心 -- 集中处理能力清单,cases 路径,course.env 和模型地址.
+配置中心 -- 集中处理能力清单,cases 路径,.env.agent 和模型地址.
 
 [这个文件是干什么的]
-整个项目的配置入口:读环境变量(course.env),能力清单,模型地址/名称,Java 后端地址.
+整个项目的配置入口:读环境变量(.env.agent),能力清单,模型地址/名称,Java 后端地址.
 其它模块通过 `from config.settings import ...` 获取配置,不直接读环境变量(解耦).
 
 [怎么用]
 各模块调用这些函数拿配置:openai_base_url()/openai_model_name()(模型),
-ecommerce_base_url()(Java 后端),load_course_env()(加载 course.env 到环境变量).
+ecommerce_base_url()(Java 后端),load_agent_env()(加载 .env.agent 到环境变量).
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from typing import Any
 
 CAPABILITIES_PATH = Path(__file__).resolve().parents[1] / "agent_capabilities.json"  # 能力清单
 CASES_PATH = Path(__file__).resolve().parents[1] / "cases.yml"  # 评测用例
-DEFAULT_COURSE_ENV_PATH = Path(__file__).resolve().parents[2] / "course.env"  # 环境变量文件(项目根目录下)
+DEFAULT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env.agent"  # 环境变量文件(项目根目录下)
 DEFAULT_ECOMMERCE_BASE_URL = "http://127.0.0.1:8081"  # Java 电商后端默认地址
 TRACE_SCHEMA_VERSION = "trace_event_v1"  # Trace schema 版本
 
@@ -43,14 +43,14 @@ def api_key_is_missing(api_key: str | None) -> bool:
 
 
 def load_agent_capabilities() -> dict[str, Any]:
-    """读取当前能力清单,让前端和文档知道是综合演练版."""
+    """读取当前能力清单,供前端和文档使用."""
     with CAPABILITIES_PATH.open(encoding="utf-8") as file:
         return json.load(file)
 
 
-def load_course_env() -> Path | None:
-    """加载 course.env,把里面的 KEY=VALUE 注入环境变量(已存在的环境变量不覆盖)."""
-    env_path = Path(os.getenv("AGENT_ENV", str(DEFAULT_COURSE_ENV_PATH))).expanduser()
+def load_agent_env() -> Path | None:
+    """加载 .env.agent,把里面的 KEY=VALUE 注入环境变量(已存在的环境变量不覆盖)."""
+    env_path = Path(os.getenv("AGENT_ENV_FILE", str(DEFAULT_ENV_PATH))).expanduser()
     if not env_path.exists():
         return None
     for raw_line in env_path.read_text(encoding="utf-8").splitlines():

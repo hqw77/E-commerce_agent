@@ -31,3 +31,4 @@ dist/
 *.zip
 target/
 *.class
+.env.agent

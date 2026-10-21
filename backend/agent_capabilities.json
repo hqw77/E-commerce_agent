@@ -1,10 +1,9 @@
 {
   "schema_version": "agent_capabilities_v1",
-  "lesson": {
-    "id": "v1",
-    "number": 41,
-    "title": "大促前夜，跨境电商客服 Agent 综合演练｜全链路检查与项目总览",
-    "summary": "当前版本复用第九幕后的最终 Agent 能力，覆盖商品 Tool + RAG、订单与退款进度查询、退款/退货 Workflow、MCP 目录、Memory/Context 安全、HITL/Resume、Trace、Evaluation、成本治理和降级演练。"
+  "project": {
+    "id": "after-sale-agent-v1",
+    "title": "跨境电商售后 Agent｜全链路能力与边界",
+    "summary": "覆盖商品 Tool + RAG、订单与退款进度查询、退款/退货 Workflow、HITL/Resume、Trace、Evaluation、成本治理和降级。"
   },
   "agent": {
     "name": "跨境电商客服 Agent",

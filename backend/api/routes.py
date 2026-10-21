@@ -18,7 +18,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from agents.customer_service_agent import Lesson41Agent
+from agents.customer_service_agent import AfterSaleAgent
 from api.auth import (
     Principal,
     auth_mode,
@@ -74,7 +74,7 @@ async def lifespan(app: FastAPI):
 
 
 # 实例化核心组件(服务启动时创建,进程内单例)
-agent = Lesson41Agent()
+agent = AfterSaleAgent()
 eval_runner = EvalRunner(agent, CASES_PATH)
 eval_runner.backfilled_cases = BACKFILLED_CASES
 failure_attributor = FailureAttributor()
@@ -294,7 +294,7 @@ def session_trace(session_id: str) -> list[TraceEvent]:
     dependencies=[Depends(require_admin)],
 )
 def run_eval(request: EvalRunRequest) -> EvalRunResponse:
-    """运行大促综合演练回归评测."""
+    """运行售后 Agent 回归评测."""
     return eval_runner.run(case_id=request.case_id)
 
 

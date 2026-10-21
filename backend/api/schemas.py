@@ -61,7 +61,6 @@ NextAction = Literal["answer_user", "ask_clarification", "transfer_to_human"]  #
 
 CAPABILITIES_PATH = Path(__file__).with_name("agent_capabilities.json")  # 能力清单文件
 CASES_PATH = Path(__file__).with_name("cases.yml")  # 评测用例文件
-DEFAULT_COURSE_ENV_PATH = Path(__file__).resolve().parents[2] / "course.env"  # 环境变量文件
 DEFAULT_ECOMMERCE_BASE_URL = "http://127.0.0.1:8081"  # Java 电商后端默认地址
 TRACE_SCHEMA_VERSION = "trace_event_v1"  # Trace 事件 schema 版本
 

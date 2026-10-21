@@ -37,10 +37,10 @@ from tools.runtime_context import logistics_status_from_order, order_status
 from workflows.resume import build_refund_workflow_checkpoint
 
 
-def course_today() -> date:
-    """固定基准日期(避免已发布案例随机器日期失效);可用 AGENT_TODAY 覆盖."""
-    configured = os.getenv("AGENT_TODAY")
-    return date.fromisoformat(configured) if configured else date(2026, 7, 15)
+def business_today() -> date:
+    """业务基准日期;测试/演示可用 AGENT_BUSINESS_DATE 固定,默认取当天."""
+    configured = os.getenv("AGENT_BUSINESS_DATE")
+    return date.fromisoformat(configured) if configured else date.today()
 
 
 # ============ 图 1:未发货退款审批 ============
@@ -225,7 +225,7 @@ class ReceivedReturnGraph:
         signed_days: int | None = None
         if raw_signed_at:
             try:
-                signed_days = (course_today() - datetime.fromisoformat(str(raw_signed_at).replace("Z", "+00:00")).date()).days
+                signed_days = (business_today() - datetime.fromisoformat(str(raw_signed_at).replace("Z", "+00:00")).date()).days
             except ValueError:
                 signed_days = None
         returnable = order.get("returnable")

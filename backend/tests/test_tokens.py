@@ -85,7 +85,7 @@ def test_token_single_use(monkeypatch):
     assert tokens.is_token_used(token)
 
 
-def test_legacy_mode_keeps_course_token(monkeypatch):
+def test_legacy_mode_keeps_compat_token(monkeypatch):
     monkeypatch.setenv("AGENT_RESUME_TOKEN_MODE", "legacy")
     token = tokens.issue_resume_token(session_id="s-1", workflow_id="wf-1", order_id="SO-1")
     assert token == "resume-s-1-wf-1-SO-1"

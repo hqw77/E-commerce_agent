@@ -36,7 +36,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from agents.customer_service_agent import Lesson41Agent
+from agents.customer_service_agent import AfterSaleAgent
 from api.schemas import *
 from observability.trace import trace_store
 
@@ -44,7 +44,7 @@ from observability.trace import trace_store
 class EvalRunner:
     """型离线回归评测.Eval 只调用真实 Agent,再检查公开响应和 trace 事件."""
 
-    def __init__(self, agent: Lesson41Agent, cases_path: Path) -> None:
+    def __init__(self, agent: AfterSaleAgent, cases_path: Path) -> None:
         self.agent = agent
         self.cases_path = cases_path
         self.backfilled_cases: list[dict[str, Any]] = []  # 反馈回填的临时 case

@@ -13,8 +13,8 @@ Tool 路的"数据源头":真正去 Java 电商后端(8081)取实时业务数据
 
 [核心设计:在线/离线双模式 + 来源标记]
   1. 在线:真实 HTTP 调 Java 后端,带认证头(X-Agent-Service-Token + X-Agent-User-Id)
-  2. 离线:AGENT_OFFLINE_FACTS=1 时,回退到下方 COURSE_SEED_*_MIRRORS 固定样例数据
-  3. _fact_source:每份数据都打上来源标记(business_api / course_seed_mirror),可追溯
+  2. 离线:AGENT_OFFLINE_FACTS=1 时,回退到下方 SEED_*_MIRRORS 固定样例数据
+  3. _fact_source:每份数据都打上来源标记(business_api / seed_mirror),可追溯
   4. 失败降级:HTTP 失败返回 None/[],交给上层转人工,不凭空编造业务数据
 
 [注意]
@@ -38,14 +38,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from config.settings import ecommerce_base_url, load_course_env
+from config.settings import ecommerce_base_url, load_agent_env
 
 
 # ============ 离线种子数据(测试用,非真实业务数据) ============
 # 当 AGENT_OFFLINE_FACTS=1 时,不调 Java 后端,直接用这些固定样例,保证离线可跑.
 
 # 订单镜像:3 个预设订单(未发货 / 运输中 / 已签收)
-COURSE_SEED_ORDER_MIRRORS: dict[str, dict[str, Any]] = {
+SEED_ORDER_MIRRORS: dict[str, dict[str, Any]] = {
     "SO20260601090000008-a1000008": {
         "orderNo": "SO20260601090000008-a1000008",
         "userId": "U1001",
@@ -74,7 +74,7 @@ COURSE_SEED_ORDER_MIRRORS: dict[str, dict[str, Any]] = {
 }
 
 # 商品镜像:1 个预设商品(含活动信息)
-COURSE_SEED_PRODUCT_MIRRORS: list[dict[str, Any]] = [
+SEED_PRODUCT_MIRRORS: list[dict[str, Any]] = [
     {
         "id": 1,
         "name": "降噪蓝牙耳机",
@@ -97,7 +97,7 @@ COURSE_SEED_PRODUCT_MIRRORS: list[dict[str, Any]] = [
 ]
 
 # 售后镜像:1 条预设退款申请(状态 REVIEWING)
-COURSE_SEED_AFTER_SALE_MIRRORS: dict[str, list[dict[str, Any]]] = {
+SEED_AFTER_SALE_MIRRORS: dict[str, list[dict[str, Any]]] = {
     "SO20260602103000009-a1000009": [
         {
             "requestId": "AS-STORY-REFUND-0009",
@@ -110,23 +110,23 @@ COURSE_SEED_AFTER_SALE_MIRRORS: dict[str, list[dict[str, Any]]] = {
 }
 
 
-def course_seed_mirror_enabled() -> bool:
+def seed_mirror_enabled() -> bool:
     """检查是否启用离线种子镜像(AGENT_OFFLINE_FACTS=1)."""
     return os.getenv("AGENT_OFFLINE_FACTS") == "1"
 
 
 def _with_fact_source(value: dict[str, Any], source: str) -> dict[str, Any]:
-    """给数据打上来源标记(business_api / course_seed_mirror),便于可观测性追溯."""
+    """给数据打上来源标记(business_api / seed_mirror),便于可观测性追溯."""
     return {**value, "_fact_source": source}
 
 
 def delegated_service_headers(current_user_id: str | None) -> dict[str, str]:
     """构造认证头:Agent 服务令牌 + 当前用户 ID.业务后端据此识别身份."""
-    load_course_env()
+    load_agent_env()
     user_id = str(current_user_id or "").strip()
     token = os.getenv(
         "AGENT_ECOMMERCE_SERVICE_TOKEN",
-        os.getenv("AGENT_SERVICE_AUTH_TOKEN", "course-debug-agent-service"),
+        os.getenv("AGENT_SERVICE_AUTH_TOKEN", "demo-agent-service"),
     ).strip()
     if not user_id or not token:
         return {}
@@ -187,10 +187,10 @@ def order_fact_from_ecommerce(target_order_no: str, current_user_id: str) -> dic
                 enriched["returnable"] = None
         return enriched
     # 在线失败 -> 回退离线种子镜像
-    if not course_seed_mirror_enabled():
+    if not seed_mirror_enabled():
         return None
-    mirror = COURSE_SEED_ORDER_MIRRORS.get(target_order_no)
-    return _with_fact_source(mirror, "course_seed_mirror") if mirror else None
+    mirror = SEED_ORDER_MIRRORS.get(target_order_no)
+    return _with_fact_source(mirror, "seed_mirror") if mirror else None
 
 
 def products_from_ecommerce(keyword: str) -> list[dict[str, Any]]:
@@ -202,12 +202,12 @@ def products_from_ecommerce(keyword: str) -> list[dict[str, Any]]:
         products = None
     if isinstance(products, list):
         return [_with_fact_source(item, "business_api") for item in products if isinstance(item, dict)]
-    if not course_seed_mirror_enabled():
+    if not seed_mirror_enabled():
         return []
     normalized = keyword.replace(" ", "")
     return [
-        _with_fact_source(item, "course_seed_mirror")
-        for item in COURSE_SEED_PRODUCT_MIRRORS
+        _with_fact_source(item, "seed_mirror")
+        for item in SEED_PRODUCT_MIRRORS
         if any(term in normalized for term in ("耳机", "降噪", "通勤")) and "耳机" in str(item.get("name"))
     ]
 
@@ -234,6 +234,6 @@ def after_sale_requests_from_ecommerce(order_id: str, current_user_id: str) -> l
         requests = None
     if isinstance(requests, list):
         return [_with_fact_source(item, "business_api") for item in requests if isinstance(item, dict)]
-    if not course_seed_mirror_enabled():
+    if not seed_mirror_enabled():
         return None
-    return [_with_fact_source(item, "course_seed_mirror") for item in COURSE_SEED_AFTER_SALE_MIRRORS.get(order_id, [])]
+    return [_with_fact_source(item, "seed_mirror") for item in SEED_AFTER_SALE_MIRRORS.get(order_id, [])]

@@ -142,9 +142,8 @@ export type AgentEndpointKey = "health" | "chat" | "chat_resume" | "trace" | "ev
 
 export type AgentCapabilityManifest = {
   schema_version: "agent_capabilities_v1" | string;
-  lesson?: {
+  project?: {
     id?: string;
-    number?: number;
     title?: string;
     summary?: string;
   };

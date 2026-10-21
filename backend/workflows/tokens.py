@@ -1,6 +1,6 @@
 """HITL 恢复令牌 -- HMAC 签名,过期,一次性消费.
 
-开发默认 legacy(课程 token),生产通过 AGENT_RESUME_TOKEN_MODE=hmac 切到签名令牌.
+开发默认 legacy(兼容 token),生产通过 AGENT_RESUME_TOKEN_MODE=hmac 切到签名令牌.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ _DEFAULT_TTL_SECONDS = 1800
 
 
 def token_mode() -> str:
-    """legacy(课程调试)或 hmac(生产)."""
+    """legacy(本地调试)或 hmac(生产)."""
     return os.getenv("AGENT_RESUME_TOKEN_MODE", "legacy").strip().lower() or "legacy"
 
 

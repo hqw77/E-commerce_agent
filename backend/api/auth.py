@@ -3,7 +3,7 @@
 生产拓扑:商城/网关(BFF)持有内部密钥,对每次调用签名;Agent 只在内网,
 校验签名后把用户身份注入请求,不再信任请求体里的 runtime_user_id.
 
-开发模式:AGENT_AUTH_MODE=off(默认),保留课程/本地调试的可用性.
+开发模式:AGENT_AUTH_MODE=off(默认),保留本地调试的可用性.
 生产模式:AGENT_AUTH_MODE=hmac,必须在启动时配置 AGENT_INTERNAL_SECRET.
 """
 

@@ -45,7 +45,7 @@ from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from api.schemas import Citation, Intent
-from config.settings import api_key_is_missing, embedding_model_name, load_course_env, openai_base_url
+from config.settings import api_key_is_missing, embedding_model_name, load_agent_env, openai_base_url
 from rag.documents import load_knowledge_citation
 
 
@@ -93,7 +93,7 @@ class LocalTokenEmbeddings(Embeddings):
     """
     离线替身 embedding:把文本拆成单字+双字,哈希映射到 256 维向量.
     确定性,可复现,不联网,但只是字符级匹配,不冒充真语义.
-    仅当 AGENT_OFFLINE_RAG=1 时使用(见 build_course_embeddings).
+    仅当 AGENT_OFFLINE_RAG=1 时使用(见 build_embeddings).
     """
 
     dimensions = 256
@@ -118,14 +118,14 @@ class LocalTokenEmbeddings(Embeddings):
         return [value / norm for value in vector]
 
 
-def build_course_embeddings() -> tuple[Embeddings, str]:
+def build_embeddings() -> tuple[Embeddings, str]:
     """
     按环境变量选择 embedding 实现,返回 (embedding 实例, 模式标识).
     在线默认用真实语义 embedding;离线(AGENT_OFFLINE_RAG=1)用本地替身.
     """
-    load_course_env()
+    load_agent_env()
     if os.getenv("AGENT_OFFLINE_RAG") == "1":
-        return LocalTokenEmbeddings(), "local_token_embedding_for_explicit_offline_course"
+        return LocalTokenEmbeddings(), "local_token_embedding_for_offline_demo"
 
     api_key = os.getenv("AGENT_OPENAI_API_KEY")
     if api_key_is_missing(api_key):
@@ -215,7 +215,7 @@ def get_knowledge_index() -> tuple[KnowledgeIndex, bool]:
         chunk.metadata["chunk_id"] = f"{chunk.metadata['policy_id']}-chunk-{index + 1}"
 
     # 向量化 + 存进内存向量库
-    embeddings, embedding_mode = build_course_embeddings()
+    embeddings, embedding_mode = build_embeddings()
     vector_store = InMemoryVectorStore(embeddings)
     vector_store.add_documents(chunks)
 

@@ -1,18 +1,14 @@
-"""生产配置校验 -- 启动即失败,避免带着课程开关/默认密钥上线."""
+"""生产配置校验 -- 启动即失败,避免带着演示开关/默认密钥上线."""
 
 from __future__ import annotations
 
 import os
 
-COURSE_FLAGS = (
-    "AGENT_COURSE_OFFLINE_FACTS",
+DEMO_FLAGS = (
     "AGENT_OFFLINE_FACTS",
-    "AGENT_COURSE_OFFLINE_RAG",
     "AGENT_OFFLINE_RAG",
-    "AGENT_COURSE_DISABLE_LLM",
     "AGENT_DISABLE_LLM",
-    "AGENT_COURSE_TODAY",
-    "AGENT_TODAY",
+    "AGENT_BUSINESS_DATE",
 )
 
 
@@ -60,9 +56,9 @@ def validate_startup_config() -> None:
             errors.append("生产环境 AGENT_DATABASE_URL 必须是 MySQL URL")
         if approval_mode() != "strict":
             errors.append("生产环境必须设置 AGENT_APPROVAL_MODE=strict")
-        for flag in COURSE_FLAGS:
+        for flag in DEMO_FLAGS:
             if os.getenv(flag, "").strip():
-                errors.append(f"生产环境禁止课程开关 {flag}")
+                errors.append(f"生产环境禁止演示/离线开关 {flag}")
 
     if errors:
         raise RuntimeError("配置校验失败: " + "; ".join(errors))

@@ -18,7 +18,7 @@ _session_factory: sessionmaker[Session] | None = None
 
 
 def state_backend() -> str:
-    """memory(本地/课程)或 sql(MySQL/SQLite 持久化)."""
+    """memory(本地)或 sql(MySQL/SQLite 持久化)."""
     return os.getenv("AGENT_STATE_BACKEND", "memory").strip().lower() or "memory"
 
 

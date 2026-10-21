@@ -28,7 +28,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from api.schemas import ChatRequest, Citation, Intent, ToolCallTrace
-from config.settings import api_key_is_missing, load_course_env, openai_base_url, openai_model_name
+from config.settings import api_key_is_missing, load_agent_env, openai_base_url, openai_model_name
 from prompts.loader import PromptManager, prompt_manager
 
 
@@ -58,7 +58,7 @@ class FinalAnswerModelClient:
 
     def can_call_model(self) -> bool:
         """检查当前环境能否真实调用聊天模型."""
-        load_course_env()
+        load_agent_env()
         if os.getenv("AGENT_DISABLE_LLM") == "1":
             return False
         if api_key_is_missing(os.getenv("AGENT_OPENAI_API_KEY")):
@@ -189,7 +189,7 @@ class FinalAnswerModelClient:
         return ChatOpenAI
 
     def _create_chat_model(self, *, temperature: float, enable_thinking: bool = False) -> Any:
-        load_course_env()
+        load_agent_env()
         chat_model_class = self._chat_model_class()
         extra_body = None
         if "siliconflow.cn" in openai_base_url():

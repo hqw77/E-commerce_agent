@@ -62,7 +62,7 @@ npm run build
 
 ### P0
 
-1. **课程开关/种子数据清理**：生产包不包含 `AGENT_OFFLINE_FACTS` / `AGENT_OFFLINE_RAG` / 固定日期。
+1. **演示开关/种子数据清理**：生产包不包含 `AGENT_OFFLINE_FACTS` / `AGENT_OFFLINE_RAG` / 固定业务日期。
 2. **转人工对接**：`transfer_to_human` 已落 `agent_handoff_ticket`，还需接外部 ITSM/工单队列。
 3. **真实退款执行**：当前只记录审批结果，不执行资金动作；真实执行需要 outbox + 对账。
 4. **演示验证**：Docker Compose 已实际启动并跑通完整审批链路；还需录 5 分钟演示视频。

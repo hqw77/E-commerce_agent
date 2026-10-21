@@ -1,20 +1,20 @@
-# Agent 编排层 -- 整个项目的"大脑".
+# Agent 编排层.
 
 from __future__ import annotations
 
 import os
 from typing import Any
 
-# 从这 30 行 import 就能看出整个项目的模块划分--每个 import 对应一个能力模块:
-#  - api / config        : 接口结构 + 配置(加载 course.env,模型地址等)
-#  - models              : 两个模型客户端(路由模型 + 最终回答模型)
-#  - tools               : 工具层(意图分类,路由计划,实际查订单/物流/退款)
-#  - rag / workflows     : 知识检索 + 售后工作流(LangGraph)
+# 模块边界:
+#  - api / config        : 接口契约、运行配置
+#  - models              : 路由模型 + 最终回答模型
+#  - tools               : 意图分类、路由计划、订单/物流/退款/商品工具
+#  - rag / workflows     : 知识检索 + 售后工作流
 #  - context / state     : 上下文组装 + 会话记忆
 #  - safety / hooks      : 注入防御 + 工具调用钩子
 #  - observability / cost: Trace 记录 + 成本治理
 from api.schemas import *
-from config.settings import load_course_env
+from config.settings import load_agent_env
 from context.builder import SESSION_MEMORIES, build_context, update_memory
 from cost.governance import build_cost_summary
 from db.repository import create_handoff_ticket
@@ -50,8 +50,8 @@ from tools.tool_runtime import get_order_detail, get_order_logistics, get_refund
 from workflows.after_sale_graph import RECEIVED_RETURN_GRAPH, REFUND_APPROVAL_GRAPH
 from workflows.resume import resume_from_checkpoint
 
-class Lesson41Agent:
-    """综合演练版:复用前面能力,服务大促综合演练和项目验证."""
+class AfterSaleAgent:
+    """售后客服 Agent:复用工具、RAG、Workflow 能力."""
 
     def __init__(self) -> None:
         # 初始化三个"能力对象"(都是无状态的客户端/运行器,方法里现用现调):
@@ -63,18 +63,18 @@ class Lesson41Agent:
         self.langchain_tool_runner = LangChainToolRunner()
 
     def chat(self, request: ChatRequest) -> ChatResponse:
-        """编排综合演练聊天链路,串联 Tool,RAG,Workflow/HITL,降级,安全,Trace 和成本治理."""
+        """编排售后客服聊天链路,串联 Tool,RAG,Workflow/HITL,降级,安全,Trace 和成本治理."""
 
-        # ============ chat() 完整流程(面试讲架构就讲这个)============
-        # 1. 意图识别:规则兜底 -> 模型判断 -> 规则 guard 覆盖(双保险)
+        # chat() 主流程:
+        # 1. 意图识别:规则兜底 -> 模型判断 -> 规则 guard 覆盖
         # 2. 上下文组装:提取订单号,拼 Runtime Context + Session Memory
         # 3. 生成路由计划 RoutePlan:决定走 RAG / Tool / Workflow 哪条路
-        # 4. 按意图分发(核心):下面的 if/elif 就是"决策表"
+        # 4. 按意图分发:下面的 if/elif 是执行决策表
         # 5. 安全检查:Tool/RAG 拿到的外部文本做注入检测
-        # 6. 生成最终话术:某些边界场景跳过模型(安全/降级/缓存命中)
+        # 6. 生成最终话术:边界场景跳过模型(安全/降级/缓存命中)
         # 7. 收尾记录:写记忆,执行钩子,算成本,记 Trace
         # 8. 返回 ChatResponse:把所有中间证据打包给前端
-        load_course_env()
+        load_agent_env()
         MESSAGE_COUNT_BY_SESSION[request.session_id] = MESSAGE_COUNT_BY_SESSION.get(request.session_id, 0) + 1
         message_count = MESSAGE_COUNT_BY_SESSION[request.session_id]
         # ① 意图识别(三步双保险,防止模型判断失误):
@@ -203,7 +203,7 @@ class Lesson41Agent:
             degraded = True
             degradation_reason = "business_tool_unavailable"
             degradation_source = (
-                "explicit_course_fault_injection"
+                "demo_fault_injection"
                 if "故障注入演示" in request.user_message
                 else "user_reported_service_failure"
             )
@@ -876,7 +876,7 @@ class Lesson41Agent:
                 "degraded": degraded,
                 "cost_summary": cost_summary,
                 "trace": public_trace_summary(request.session_id),
-                "next_gap": "用同一阶段 Agent 做大促综合演练，并把证据整理成项目表达。",
+                "next_gap": "后续补充真实业务接入和线上可观测。",
             },
         )
 

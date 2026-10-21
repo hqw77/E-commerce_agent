@@ -8,7 +8,7 @@ cases:
           fulfillmentStatus: SHIPPED
           logisticsStatus: IN_TRANSIT
           items:
-            - productName: 小哲智能音箱
+            - productName: 智能音箱
     expected_signals:
       - 物流状态
       - 运输中
@@ -63,7 +63,7 @@ cases:
           fulfillmentStatus: SHIPPED
           logisticsStatus: IN_TRANSIT
           items:
-            - productName: 小哲智能音箱
+            - productName: 智能音箱
     expected_signals:
       - 已经发货
       - refund_eligibility_blocked
@@ -87,7 +87,7 @@ cases:
           fulfillmentStatus: SHIPPED
           logisticsStatus: IN_TRANSIT
           items:
-            - productName: 小哲智能音箱
+            - productName: 智能音箱
     expected_signals:
       - 审核中
     expected_tools:
