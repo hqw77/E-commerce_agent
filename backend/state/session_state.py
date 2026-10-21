@@ -29,3 +29,4 @@ SUBMITTED_ACTIONS: dict[str, dict[str, Any]] = {}           # 幂等键 -> 已�
 USED_RESUME_TOKENS: dict[str, float] = {}                   # 已消费的恢复令牌哈希 -> 过期时间
 APPROVALS: dict[str, dict[str, Any]] = {}                   # workflow_id -> 最近一次审批结果(memory 模式)
 AUDIT_LOGS: list[dict[str, Any]] = []                       # 审计流水(memory 模式)
+HANDOFF_TICKETS: dict[str, dict[str, Any]] = {}             # ticket_id -> 转人工工单(memory 模式)

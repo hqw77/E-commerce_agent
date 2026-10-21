@@ -74,6 +74,21 @@ class HistoryMessage(BaseModel):
     content: str  # 消息内容
 
 
+class HandoffTicket(BaseModel):
+    """转人工工单(公开字段;不包含内部提示词或完整上下文)."""
+    ticket_id: str
+    session_id: str
+    user_id: str
+    intent: str
+    priority: str
+    status: str
+    reason: str
+    summary: str
+    order_no: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
 class ChatRequest(BaseModel):
     """POST /chat 的请求体."""
     session_id: str = Field(..., description="当前对话会话 ID")
@@ -98,6 +113,7 @@ class ChatResponse(BaseModel):
     reasoning_summary: list[str]                   # 推理摘要(公开)
     reasoning_content: str | None = None           # 推理原文(仅教学模式返回)
     session_state: dict[str, Any]                  # 完整会话状态(供前端展示)
+    handoff_ticket: HandoffTicket | None = None    # 转人工工单(如触发转人工)
 
 
 class ChatResumeRequest(BaseModel):

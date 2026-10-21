@@ -17,6 +17,7 @@ from api.schemas import *
 from config.settings import load_course_env
 from context.builder import SESSION_MEMORIES, build_context, update_memory
 from cost.governance import build_cost_summary
+from db.repository import create_handoff_ticket
 from hooks.manager import HookManager
 from integrations.ecommerce_client import product_query_keyword
 from mcp_catalog.catalog import MCP_CATALOG
@@ -754,6 +755,35 @@ class Lesson41Agent:
             },
         )
 
+        # ============ ⑩ 转人工工单 ============
+        # transfer_to_human 不再只返回一个字符串:落一张可查询、可审计的工单.
+        # 退款/退货已经在 workflow 审批队列里的场景不重复建单,避免双队列.
+        handoff_ticket: HandoffTicket | None = None
+        if next_action == "transfer_to_human" and not (workflow and needs_human_approval):
+            priority = {"high": "P1", "medium": "P2", "low": "P3"}.get(risk_level, "P3")
+            handoff_ticket = HandoffTicket(
+                **create_handoff_ticket(
+                    session_id=request.session_id,
+                    user_id=request.runtime_user_id,
+                    intent=intent,
+                    priority=priority,
+                    reason=degradation_reason or f"agent_handoff:{intent}",
+                    summary=answer,
+                    order_no=order_id or None,
+                )
+            )
+            trace_store.add(
+                request.session_id,
+                "handoff_ticket_created",
+                {
+                    "session_id": request.session_id,
+                    "ticket_id": handoff_ticket.ticket_id,
+                    "priority": handoff_ticket.priority,
+                    "intent": intent,
+                    "status": handoff_ticket.status,
+                },
+            )
+
         return ChatResponse(
             session_id=request.session_id,
             answer=answer,
@@ -766,6 +796,7 @@ class Lesson41Agent:
                 "教学模式会尝试展示主链路最终模型返回的 reasoning_content；系统提示词、密钥、隐私原文和内部堆栈不会写入公开 trace。",
             ],
             reasoning_content=reasoning_content,
+            handoff_ticket=handoff_ticket,
             session_state={
                 "agent_version": "v1",
                 "message_count": message_count,
@@ -815,6 +846,7 @@ class Lesson41Agent:
                 "risk_level": risk_level,
                 "next_action": next_action,
                 "needs_human_approval": needs_human_approval,
+                "handoff_ticket": handoff_ticket.model_dump() if handoff_ticket else None,
                 "runtime_context": runtime_context,
                 "memory": memory,
                 "context_report": context_report,

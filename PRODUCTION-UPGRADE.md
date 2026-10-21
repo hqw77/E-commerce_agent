@@ -24,14 +24,14 @@
 | 启动 fail-fast | `backend/config/production.py` | 生产校验鉴权、密钥、CORS、数据库、审批模式 |
 | 请求 ID + JSON 日志 | `backend/observability/logging.py` | `X-Request-Id`、状态码、耗时；异常不返回堆栈 |
 | Docker 化 | `backend/Dockerfile`、`.dockerignore` | 非 root、健康检查、单 worker |
-| 测试与 CI | `backend/tests/`、`.github/workflows/backend-ci.yml` | 40 条 pytest；13 条离线回归；MySQL 并发冒烟 |
+| 测试与 CI | `backend/tests/`、`.github/workflows/backend-ci.yml` | 41 条 pytest；13 条离线回归；MySQL 并发冒烟 |
 
 ### 已验证
 
 ```powershell
 cd D:\E-commerce-Agent\backend
 pytest -q
-# 40 passed
+# 41 passed
 
 python tests\run_eval.py
 # total=13 passed=13 failed=0
@@ -63,9 +63,9 @@ npm run build
 ### P0
 
 1. **课程开关/种子数据清理**：生产包不包含 `AGENT_OFFLINE_FACTS` / `AGENT_OFFLINE_RAG` / 固定日期。
-2. **转人工落地**：`transfer_to_human` 创建工单，不能只返回字符串。
+2. **转人工对接**：`transfer_to_human` 已落 `agent_handoff_ticket`，还需接外部 ITSM/工单队列。
 3. **真实退款执行**：当前只记录审批结果，不执行资金动作；真实执行需要 outbox + 对账。
-4. **演示验证**：`docker-compose.demo.yml` 已就绪，需在有 Docker 的机器上实际 `up` 一次并录 5 分钟视频。
+4. **演示验证**：Docker Compose 已实际启动并跑通完整审批链路；还需录 5 分钟演示视频。
 
 ### P1
 
@@ -96,6 +96,7 @@ agent_workflow_checkpoint   # workflow 快照 + 冻结字段 + payload JSON
 agent_approval_record       # 审批记录
 agent_idempotency_record    # 幂等键 + 一次性令牌消费
 agent_audit_log             # 审计流水
+agent_handoff_ticket        # 转人工工单（按 session/intent/order 去重）
 ```
 
 关键设计：

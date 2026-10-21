@@ -81,3 +81,23 @@ class AuditLog(Base):
     before_state: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
     after_state: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class HandoffTicketRecord(Base):
+    """转人工工单;由 Agent 的 transfer_to_human 分支创建."""
+
+    __tablename__ = "agent_handoff_ticket"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ticket_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    dedupe_key: Mapped[str] = mapped_column(String(256), unique=True, index=True)
+    session_id: Mapped[str] = mapped_column(String(128), index=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    intent: Mapped[str] = mapped_column(String(64), index=True)
+    priority: Mapped[str] = mapped_column(String(8), index=True)
+    status: Mapped[str] = mapped_column(String(16), index=True)
+    reason: Mapped[str] = mapped_column(String(256))
+    summary: Mapped[str] = mapped_column(Text)
+    order_no: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

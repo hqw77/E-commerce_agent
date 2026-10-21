@@ -219,6 +219,28 @@ def workflow_status(
 
 # 管理员待审批列表
 @app.get(
+    "/admin/handoff-tickets",
+    response_model=list[HandoffTicket],
+    dependencies=[Depends(require_admin)],
+)
+def list_handoff_tickets(limit: int = 50, status: str | None = None) -> list[HandoffTicket]:
+    """管理端转人工工单列表;transfer_to_human 的真实落库记录."""
+    return [HandoffTicket(**item) for item in repository.list_handoff_tickets(limit=limit, status=status)]
+
+
+@app.get(
+    "/admin/handoff-tickets/{ticket_id}",
+    response_model=HandoffTicket,
+    dependencies=[Depends(require_admin)],
+)
+def get_handoff_ticket(ticket_id: str) -> HandoffTicket:
+    ticket = repository.get_handoff_ticket(ticket_id)
+    if ticket is None:
+        raise HTTPException(status_code=404, detail="handoff_ticket_not_found")
+    return HandoffTicket(**ticket)
+
+
+@app.get(
     "/admin/approvals",
     response_model=list[PendingApproval],
     dependencies=[Depends(require_admin)],

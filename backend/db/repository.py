@@ -6,11 +6,19 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import select
 
 from db.database import session_scope, state_backend
-from db.models import ApprovalRecord, AuditLog, IdempotencyRecord, WorkflowCheckpoint, utcnow
+from db.models import (
+    ApprovalRecord,
+    AuditLog,
+    HandoffTicketRecord,
+    IdempotencyRecord,
+    WorkflowCheckpoint,
+    utcnow,
+)
 from state import session_state
 
 
@@ -584,3 +592,143 @@ def audit(
             "after_state": after,
         }
     )
+
+
+def _ticket_dict(row: HandoffTicketRecord) -> dict[str, Any]:
+    return {
+        "ticket_id": row.ticket_id,
+        "session_id": row.session_id,
+        "user_id": row.user_id,
+        "intent": row.intent,
+        "priority": row.priority,
+        "status": row.status,
+        "reason": row.reason,
+        "summary": row.summary,
+        "order_no": row.order_no,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+def create_handoff_ticket(
+    *,
+    session_id: str,
+    user_id: str,
+    intent: str,
+    priority: str,
+    reason: str,
+    summary: str,
+    order_no: str | None = None,
+) -> dict[str, Any]:
+    """创建转人工工单;同一 session/intent/order 只创建一张,重复调用返回原工单."""
+    dedupe_key = f"handoff:{session_id}:{intent}:{order_no or ''}"
+    if _is_sql():
+        with session_scope() as session:
+            existing = session.scalar(
+                select(HandoffTicketRecord).where(HandoffTicketRecord.dedupe_key == dedupe_key)
+            )
+            if existing is not None:
+                return _ticket_dict(existing)
+            ticket_id = f"HT-{uuid4().hex[:12].upper()}"
+            row = HandoffTicketRecord(
+                ticket_id=ticket_id,
+                dedupe_key=dedupe_key,
+                session_id=session_id,
+                user_id=user_id,
+                intent=intent,
+                priority=priority,
+                status="open",
+                reason=reason[:256],
+                summary=summary,
+                order_no=order_no,
+            )
+            session.add(row)
+            session.flush()
+            session.add(
+                AuditLog(
+                    request_id=None,
+                    actor="agent",
+                    action="handoff_ticket_created",
+                    target=ticket_id,
+                    before_state=None,
+                    after_state=_jsonable(
+                        {
+                            "session_id": session_id,
+                            "user_id": user_id,
+                            "intent": intent,
+                            "priority": priority,
+                            "order_no": order_no,
+                        }
+                    ),
+                )
+            )
+            return _ticket_dict(row)
+    with _memory_lock:
+        existing = next(
+            (ticket for ticket in session_state.HANDOFF_TICKETS.values() if ticket["dedupe_key"] == dedupe_key),
+            None,
+        )
+        if existing is not None:
+            return {key: value for key, value in existing.items() if key != "dedupe_key"}
+        ticket_id = f"HT-{uuid4().hex[:12].upper()}"
+        created_at = _now_iso()
+        ticket = {
+            "ticket_id": ticket_id,
+            "dedupe_key": dedupe_key,
+            "session_id": session_id,
+            "user_id": user_id,
+            "intent": intent,
+            "priority": priority,
+            "status": "open",
+            "reason": reason[:256],
+            "summary": summary,
+            "order_no": order_no,
+            "created_at": created_at,
+            "updated_at": created_at,
+        }
+        session_state.HANDOFF_TICKETS[ticket_id] = ticket
+        session_state.AUDIT_LOGS.append(
+            {
+                "request_id": None,
+                "actor": "agent",
+                "action": "handoff_ticket_created",
+                "target": ticket_id,
+                "before_state": None,
+                "after_state": {
+                    "session_id": session_id,
+                    "user_id": user_id,
+                    "intent": intent,
+                    "priority": priority,
+                    "order_no": order_no,
+                },
+            }
+        )
+        return {key: value for key, value in ticket.items() if key != "dedupe_key"}
+
+
+def list_handoff_tickets(limit: int = 50, status: str | None = None) -> list[dict[str, Any]]:
+    limit = max(1, min(int(limit), 200))
+    if _is_sql():
+        with session_scope() as session:
+            statement = select(HandoffTicketRecord).order_by(HandoffTicketRecord.id.desc()).limit(limit)
+            if status:
+                statement = statement.where(HandoffTicketRecord.status == status)
+            return [_ticket_dict(row) for row in session.scalars(statement).all()]
+    with _memory_lock:
+        items = [
+            {key: value for key, value in ticket.items() if key != "dedupe_key"}
+            for ticket in session_state.HANDOFF_TICKETS.values()
+            if not status or ticket["status"] == status
+        ]
+    items.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    return items[:limit]
+
+
+def get_handoff_ticket(ticket_id: str) -> dict[str, Any] | None:
+    if _is_sql():
+        with session_scope() as session:
+            row = session.scalar(select(HandoffTicketRecord).where(HandoffTicketRecord.ticket_id == ticket_id))
+            return _ticket_dict(row) if row else None
+    with _memory_lock:
+        ticket = session_state.HANDOFF_TICKETS.get(ticket_id)
+        return {key: value for key, value in ticket.items() if key != "dedupe_key"} if ticket else None

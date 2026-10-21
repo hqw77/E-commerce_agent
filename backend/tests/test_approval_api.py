@@ -291,3 +291,36 @@ def test_rejected_approval_is_final(strict_client: TestClient):
     assert replay.status_code == 200
     assert replay.json()["resume_result"]["idempotent_replay"] is True
     assert replay.json()["workflow"]["status"] == "rejected"
+
+
+def test_transfer_to_human_creates_deduped_ticket(strict_client: TestClient):
+    payload = {
+        "session_id": "s-handoff",
+        "runtime_user_id": "U1001",
+        "runtime_nickname": "张三",
+        "runtime_member_level": "gold",
+        "runtime_risk_level": "low",
+        "user_message": f"SERVICE_TIMEOUT：请帮我查一下订单 {ORDER_ID} 的物流",
+    }
+    first = strict_client.post("/chat", json=payload)
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert body["session_state"]["next_action"] == "transfer_to_human"
+    ticket = body["handoff_ticket"]
+    assert ticket is not None
+    assert ticket["status"] == "open"
+    assert ticket["priority"] == "P2"
+    assert ticket["intent"] == "degradation_request"
+    assert ticket["order_no"] == ORDER_ID
+
+    second = strict_client.post("/chat", json=payload)
+    assert second.status_code == 200
+    assert second.json()["handoff_ticket"]["ticket_id"] == ticket["ticket_id"]
+
+    listed = strict_client.get("/admin/handoff-tickets?status=open")
+    assert listed.status_code == 200, listed.text
+    assert ticket["ticket_id"] in [item["ticket_id"] for item in listed.json()]
+
+    fetched = strict_client.get(f"/admin/handoff-tickets/{ticket['ticket_id']}")
+    assert fetched.status_code == 200
+    assert fetched.json()["session_id"] == "s-handoff"

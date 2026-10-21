@@ -45,7 +45,8 @@
 | 服务间鉴权 | Java BFF 出站 HMAC 签名；Agent 校验时间戳、nonce、路径和角色 |
 | 管理后台 | “客服审批”页：待审批列表、通过/拒绝/要求补充 |
 | 用户状态刷新 | 商城可刷新审批状态，看到“审批中 / 已通过 / 已拒绝” |
-| 可观测与评测 | Request ID、JSON 日志、公开 Trace、13 条离线回归、40 条 pytest |
+| 转人工工单 | `transfer_to_human` 落 `agent_handoff_ticket`，管理端可查，重复触发按 session/intent/order 去重 |
+| 可观测与评测 | Request ID、JSON 日志、公开 Trace、13 条离线回归、41 条 pytest |
 
 ---
 
@@ -261,11 +262,25 @@ agent_workflow_checkpoint   # workflow 快照 + 冻结字段 + payload JSON
 agent_approval_record       # 审批记录
 agent_idempotency_record    # 幂等键 + 一次性令牌消费
 agent_audit_log             # 审计流水
+agent_handoff_ticket        # 转人工工单
 ```
 
 并发审批使用 `SELECT ... FOR UPDATE` 锁 workflow 行；MySQL 8 并发测试中 8 个请求只有 1 条非重放审批。
 
-### 5. 可观测与评测
+### 5. 转人工工单
+
+`transfer_to_human` 不再只返回字符串，而是落一张可查询的工单：
+
+```text
+transfer_to_human
+  -> agent_handoff_ticket
+  -> 管理端 /admin/handoff-tickets 可查
+  -> 同 session/intent/order 重复触发返回原工单
+```
+
+退款/退货已经在 workflow 审批队列里的场景不重复建单，避免“审批队列 + 工单队列”双写。
+
+### 6. 可观测与评测
 
 - 每个请求有 `X-Request-Id`，日志为一行 JSON。
 - Agent 产出公开 Trace：工具调用、RAG、Workflow、HITL、成本、降级。
@@ -286,6 +301,8 @@ agent_audit_log             # 审计流水
 | GET | `/chat/workflow/{workflow_id}` | 用户查询审批状态 |
 | GET | `/admin/approvals` | 待审批列表（admin） |
 | POST | `/admin/approvals/{workflow_id}` | 审批决定（admin） |
+| GET | `/admin/handoff-tickets` | 转人工工单列表（admin） |
+| GET | `/admin/handoff-tickets/{ticket_id}` | 转人工工单详情（admin） |
 | POST | `/chat/resume` | HITL 恢复（审批角色 / legacy） |
 | GET | `/sessions/{session_id}/trace` | 公开 Trace（admin） |
 | POST | `/eval/run` | 回归评测（admin） |
@@ -337,7 +354,7 @@ cd backend
 
 # 单元 / 集成测试
 pytest -q
-# 40 passed
+# 41 passed
 
 # 离线回归（不依赖真实模型/业务后端）
 python tests/run_eval.py
@@ -421,7 +438,7 @@ npm run dev
 当前项目是“production-like demo”，不是完整生产系统。已知边界：
 
 - 商城 Java 会话仍在内存，重启会丢；生产应迁 Redis/MySQL。
-- 转人工目前只是 `next_action` 字符串，尚未接工单/队列。
+- 转人工已落 `agent_handoff_ticket` 工单，但尚未接外部 ITSM/工单队列。
 - 退款只记录审批结果，不执行真实资金动作；真实执行需要 outbox + 对账。
 - 课程种子数据、固定日期仍需从生产包彻底移除。
 - 可观测只有日志和公开 Trace，没有完整指标/告警。

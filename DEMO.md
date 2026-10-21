@@ -59,7 +59,7 @@ docker compose --env-file .env.demo -f docker-compose.demo.yml up --build
 6. 左侧进入“客服审批”，看到刚才的 workflow。
 7. 点行，填写意见，点“通过”。
 8. 回到商城，点“刷新审批状态”，看到“审批已通过”。
-9. 数据库可查 `agent_approval_record`、`agent_audit_log`、`agent_workflow_checkpoint`。
+9. 数据库可查 `agent_approval_record`、`agent_audit_log`、`agent_workflow_checkpoint`；转人工场景还会写 `agent_handoff_ticket`。
 
 ## 5. 生产化开关说明
 
