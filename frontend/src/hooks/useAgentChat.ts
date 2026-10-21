@@ -58,7 +58,7 @@ const DEFAULT_AGENT_CAPABILITIES: AgentCapabilityManifest = {
 
 const welcomeMessage: ConversationMessage = {
   role: "assistant",
-  content: "欢迎来到跨境电商客服 Agent 调试后台。请选择当前示例，或输入本课支持的问题观察响应。",
+  content: "欢迎来到跨境电商客服 Agent 调试后台。请选择当前示例，或输入问题观察响应。",
 };
 
 const initialConversationMessages: Record<string, ConversationMessage[]> = {};

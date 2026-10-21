@@ -45,9 +45,12 @@ docker compose --env-file .env.demo -f docker-compose.demo.yml up --build
 | 入口 | 地址 | 账号 |
 |---|---|---|
 | 商城 | http://localhost:8081/ | `zhangsan / 123456` |
-| 管理后台 | http://localhost:8081/admin | `admin / admin123456` |
+| 管理后台 | http://127.0.0.1:8081/admin | `admin / admin123456` |
 | Agent 健康检查 | http://localhost:8000/health | - |
 | MySQL | `127.0.0.1:3307` | `root / .env.demo 里的密码` |
+
+> 商城和管理后台请使用不同 host（或管理后台开无痕窗口）。  
+> 同一个 host 下 shop/admin 共享 `JSESSIONID`，后登录的账号会覆盖先登录的账号，商城会出现“当前账号无权访问用户商城”。
 
 ## 4. 演示步骤
 

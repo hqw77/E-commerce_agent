@@ -188,7 +188,7 @@ docker compose --env-file .env.demo -f docker-compose.demo.yml up --build -d
 | 入口 | 地址 | 账号 |
 |---|---|---|
 | 商城 | http://localhost:8081/ | `zhangsan / 123456` |
-| 管理后台 | http://localhost:8081/admin | `admin / admin123456` |
+| 管理后台 | http://127.0.0.1:8081/admin | `admin / admin123456` |
 | Agent 健康检查 | http://localhost:8000/health | - |
 | MySQL | `127.0.0.1:3307` | 见 `.env.demo` |
 
@@ -201,10 +201,31 @@ docker compose --env-file .env.demo -f docker-compose.demo.yml up --build -d
 5. 管理后台登录 `admin`，进入“客服审批”，点“通过”。
 6. 回商城点“刷新审批状态”，看到“审批已通过”。
 
+> 商城用 `localhost`，管理后台用 `127.0.0.1`（或管理后台开无痕窗口）。  
+> 同一个 host 下 shop/admin 共享 `JSESSIONID`，后登录的账号会覆盖先登录的账号。
+
 默认是离线演示模式（`AGENT_OFFLINE_RAG=1`、`AGENT_DISABLE_LLM=1`），不需要模型 Key。  
 要真实模型：改成 `0`，并配置 `AGENT_OPENAI_API_KEY`。
 
 更多说明见 [DEMO.md](./DEMO.md)。
+
+---
+
+## 界面截图
+
+### 调试台：Tool 调用与 Trace
+
+![调试台 Trace](docs/screenshots/01-debug-trace.png)
+
+### 管理后台：客服审批
+
+![管理后台客服审批](docs/screenshots/02-admin-approval.png)
+
+### 用户侧：审批已通过
+
+![用户侧审批已通过](docs/screenshots/03-shop-approved.png)
+
+截图使用演示数据，不包含真实手机号、邮箱、Token 或数据库密码。
 
 ---
 

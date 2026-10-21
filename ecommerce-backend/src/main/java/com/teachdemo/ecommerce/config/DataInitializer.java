@@ -682,7 +682,7 @@ public class DataInitializer implements CommandLineRunner {
             "平板,学习,办公,618", "/products/eye-care-tablet.png");
         saveProductWithImage("SKU-VAC-618", "智能扫拖机器人 Pro", "智能家居",
             "自动集尘扫拖机器人，支持激光建图、自动回洗拖布和宠物毛发清理。",
-            new BigDecimal("2999.00"), 95, "家居清洁爆款；国补叠加小哲 618 券",
+            new BigDecimal("2999.00"), 95, "家居清洁爆款；国补叠加跨境 618 券",
             true, true, "使用后非质量问题需保证主机、水箱、基站和耗材完整，滤芯耗材不单独退换",
             "扫地机器人,智能家居,清洁,国补", "/products/robot-vacuum-pro.png");
         saveProductWithImage("SKU-AIR-618", "一级能效变频空调 1.5 匹", "家用电器",
@@ -720,7 +720,7 @@ public class DataInitializer implements CommandLineRunner {
             new BigDecimal("1899.00"), 75, "露营季；应急备用；大容量电源",
             true, false, "储能电源属于高安全等级商品，激活充放电后非质量问题不支持无理由退货",
             "户外电源,露营,应急,618", "/products/portable-power-station.png");
-        saveProductWithImage("SKU-LOCK-618", "小哲智能指纹门锁 Pro", "智能家居",
+        saveProductWithImage("SKU-LOCK-618", "智能指纹门锁 Pro", "智能家居",
             "智能门锁支持指纹、密码、临时访客码和异常告警，适合家庭换锁和长租公寓管理。",
             new BigDecimal("1499.00"), 96, "智能安防；预约安装；家庭换新",
             true, false, "安装类商品预约上门后如非质量问题，已产生安装服务费需按规则扣除",
@@ -843,7 +843,7 @@ public class DataInitializer implements CommandLineRunner {
 
     private void cleanupLegacySingleProductPromotions() {
         Arrays.asList(
-            "小哲 618 通勤数码直降",
+            "跨境 618 通勤数码直降",
             "618 差旅快充组合优惠",
             "618 露营季音箱满减",
             "618 手机数码国补会场",

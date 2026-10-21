@@ -423,7 +423,7 @@ function CampaignSection({ products, selectedCategory, setCategory }: {
     return [
       {
         key: "all",
-        label: "小哲 618 年中活动",
+        label: "跨境 618 年中活动",
         title: "多会场活动正在进行",
         description: "消费电子、数码国补、智能家居、生活小家电和运动户外商品已接入活动价，商品详情页会同步展示当前活动规则。",
         count: products.length,
@@ -899,7 +899,7 @@ function OrderDetailPage({ orderNo, go, handleError, openService }: PageProps & 
             <div><h1>订单详情</h1><p>{order.orderNo}</p></div>
             <div className="actions">
               {order.orderStatus === "PENDING_PAYMENT" && <button onClick={() => go(`/pay/${order.orderNo}`)}>继续支付</button>}
-              <button className="primary" onClick={() => openService({ type: "ORDER_DETAIL", orderNo: order.orderNo })}>联系小哲客服</button>
+              <button className="primary" onClick={() => openService({ type: "ORDER_DETAIL", orderNo: order.orderNo })}>联系售后客服</button>
             </div>
           </div>
           <div className="info-grid wide">
@@ -1095,7 +1095,7 @@ function CustomerServiceDrawer({ open, context, onClose, onError }: {
   return (
     <aside className="service-drawer">
       <div className="drawer-head">
-        <div><b>小哲客服</b><span>{context.type}</span></div>
+        <div><b>售后客服</b><span>{context.type}</span></div>
         <button onClick={onClose}>关闭</button>
       </div>
       <div className="messages">
@@ -1120,7 +1120,7 @@ function CustomerServiceDrawer({ open, context, onClose, onError }: {
             )}
           </div>
         ))}
-        {loading && <div className="message system"><p>小哲客服正在处理，请稍候...</p></div>}
+        {loading && <div className="message system"><p>售后客服正在处理，请稍候...</p></div>}
       </div>
       <div className="drawer-input">
         <input
@@ -1133,7 +1133,7 @@ function CustomerServiceDrawer({ open, context, onClose, onError }: {
               void send();
             }
           }}
-          placeholder={loading ? "小哲客服正在回复，请稍候" : "请输入您的问题"}
+          placeholder={loading ? "售后客服正在回复，请稍候" : "请输入您的问题"}
         />
         <button className="primary" disabled={loading} onClick={send}>{loading ? "等待中" : "发送"}</button>
       </div>
