@@ -3,9 +3,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
-.env
-course.env
-*.env
+.env*
 *.db
 tests/
 .git/

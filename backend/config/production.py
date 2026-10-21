@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 
 DEMO_FLAGS = (
+    "AGENT_DEMO_MODE",
     "AGENT_OFFLINE_FACTS",
     "AGENT_OFFLINE_RAG",
     "AGENT_DISABLE_LLM",

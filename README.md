@@ -440,7 +440,7 @@ npm run dev
 - 商城 Java 会话仍在内存，重启会丢；生产应迁 Redis/MySQL。
 - 转人工已落 `agent_handoff_ticket` 工单，但尚未接外部 ITSM/工单队列。
 - 退款只记录审批结果，不执行真实资金动作；真实执行需要 outbox + 对账。
-- 演示种子数据、业务日期仍需从生产包彻底移除。
+- 演示数据已隔离到 `backend/demo/`，生产启动禁止 demo 模式；生产镜像可进一步排除该目录。
 - 可观测只有日志和公开 Trace，没有完整指标/告警。
 - 请求级 deadline、上游重试/熔断、SSE 流式仍待补。
 - 多副本部署前需要把 nonce 缓存迁 Redis，并补 Alembic 迁移。

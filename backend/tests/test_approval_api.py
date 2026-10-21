@@ -55,7 +55,7 @@ def strict_client(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_APPROVAL_MODE", "strict")
     monkeypatch.setenv("AGENT_RESUME_TOKEN_MODE", "legacy")
     monkeypatch.setenv("AGENT_OFFLINE_RAG", "1")
-    monkeypatch.setenv("AGENT_OFFLINE_FACTS", "1")
+    monkeypatch.setenv("AGENT_DEMO_MODE", "1")
     monkeypatch.setenv("AGENT_DISABLE_LLM", "1")
     monkeypatch.setenv("AGENT_STRICT_BUSINESS_RECHECK", "0")
     reset_engine()

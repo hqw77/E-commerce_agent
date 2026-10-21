@@ -8,9 +8,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-# 仅用于本地自检:显式开启离线演示替身,生产环境禁止
+# 仅用于本地自检:显式开启演示数据与离线检索,生产环境禁止
+os.environ.setdefault("AGENT_DEMO_MODE", "1")
 os.environ.setdefault("AGENT_OFFLINE_RAG", "1")
-os.environ.setdefault("AGENT_OFFLINE_FACTS", "1")
 os.environ.setdefault("AGENT_BUSINESS_DATE", "2026-07-15")
 os.environ.setdefault("AGENT_DISABLE_LLM", "1")
 
