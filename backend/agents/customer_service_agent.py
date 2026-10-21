@@ -13,41 +13,37 @@ from typing import Any
 #  - context / state     : 上下文组装 + 会话记忆
 #  - safety / hooks      : 注入防御 + 工具调用钩子
 #  - observability / cost: Trace 记录 + 成本治理
+from agents.handlers.knowledge import handle_knowledge
+from agents.handlers.orders import handle_tool_query
+from agents.handlers.refunds import handle_refund
+from agents.handlers.returns import handle_return
+from agents.routing import apply_route_guard
+from agents.safety_pipeline import sanitize_external_sources
 from api.schemas import *
 from config.settings import load_agent_env
 from context.builder import SESSION_MEMORIES, build_context, update_memory
 from cost.governance import build_cost_summary
 from db.repository import create_handoff_ticket
 from hooks.manager import HookManager
-from integrations.ecommerce_client import product_query_keyword
 from mcp_catalog.catalog import MCP_CATALOG
 from models.answer_client import FinalAnswerModelClient, FinalAnswerModelResult
-from models.router_client import ModelRouteResult, RouteModelClient
-from observability.trace import public_trace_summary, record_initial_chat_trace, record_trace_events, trace_store
-from rag.knowledge import REFUND_POLICY, RETURN_POLICY, invoice_faq_result, low_confidence_result, promotion_policy_result
-from safety.source_guard import inspect_source
+from models.router_client import RouteModelClient
+from observability.trace import public_trace_summary, record_initial_chat_trace, trace_store
 from state.session_state import COMMON_HIT_CACHE, MESSAGE_COUNT_BY_SESSION
 from tools.langchain_runtime import LangChainToolRunner
 from tools.planning import (
     build_order_clarification,
     build_route_plan,
-    classify_guard_intent,
     classify_intent,
     estimate_tokens,
     extract_order_id,
-    extract_return_reason,
 )
 from tools.runtime_context import (
     general_chat_answer,
     is_runtime_identity_query,
-    logistics_status_label,
-    order_no,
-    order_status_label,
     runtime_context_summary,
     runtime_identity_answer,
 )
-from tools.tool_runtime import get_order_detail, get_order_logistics, get_refund_status, search_products
-from workflows.after_sale_graph import RECEIVED_RETURN_GRAPH, REFUND_APPROVAL_GRAPH
 from workflows.resume import resume_from_checkpoint
 
 class AfterSaleAgent:
@@ -80,10 +76,10 @@ class AfterSaleAgent:
         # ① 意图识别(三步双保险,防止模型判断失误):
         #   a. classify_intent:先用规则快速判断一个"兜底意图"(不花钱,快)
         #   b. plan_intent:再用真实模型判断意图(更准,但要花钱/花时间)
-        #   c. _apply_route_guard:明确的边界规则覆盖模型结果(如明显注入就强制拦截)
+        #   c. apply_route_guard:明确的边界规则覆盖模型结果(如明显注入就强制拦截)
         fallback_intent = classify_intent(request.user_message)
         route_result = self.route_model_client.plan_intent(request.user_message, fallback_intent=fallback_intent)
-        route_result = self._apply_route_guard(
+        route_result = apply_route_guard(
             user_message=request.user_message,
             route_result=route_result,
         )
@@ -232,367 +228,61 @@ class AfterSaleAgent:
             risk_level: RiskLevel = "high"
             next_action: NextAction = "answer_user"
             needs_human_approval = False
-        elif intent == "low_confidence_query":
-            knowledge_result = low_confidence_result(request.session_id, intent)
-            record_trace_events(request.session_id, knowledge_result.trace_events)
-            answer = knowledge_result.answer
-            citations = knowledge_result.citations
-            risk_level = knowledge_result.risk_level
-            next_action = knowledge_result.next_action
-            needs_human_approval = knowledge_result.needs_human_approval
-        elif intent == "faq_query":
-            # RAG 路线:从知识库检索发票 FAQ,结果带 citations(引用)和缓存标记
-            knowledge_result = invoice_faq_result(request.session_id)
-            record_trace_events(request.session_id, knowledge_result.trace_events)
-            answer = knowledge_result.answer
-            citations = knowledge_result.citations
-            risk_level = knowledge_result.risk_level
-            next_action = knowledge_result.next_action
-            needs_human_approval = knowledge_result.needs_human_approval
-            cache_hit = knowledge_result.cache_hit
-            rag_retrieval = knowledge_result.retrieval_debug
-        elif intent == "promotion_query":
-            # RAG 路线(促销规则):混合检索 + 重排;没检索到就降级为低置信
-            knowledge_result = promotion_policy_result(request.session_id, request.user_message)
-            if not knowledge_result.citations:
-                intent = "low_confidence_query"
-            record_trace_events(request.session_id, knowledge_result.trace_events)
-            answer = knowledge_result.answer
-            citations = knowledge_result.citations
-            rag_rerank = knowledge_result.rerank
-            rag_retrieval = knowledge_result.retrieval_debug
-            risk_level = knowledge_result.risk_level
-            next_action = knowledge_result.next_action
-            needs_human_approval = knowledge_result.needs_human_approval
+        elif intent in {"low_confidence_query", "faq_query", "promotion_query"}:
+            knowledge_outcome = handle_knowledge(intent, request)
+            assert knowledge_outcome is not None
+            intent = knowledge_outcome.resolved_intent or intent
+            answer = knowledge_outcome.answer
+            citations = knowledge_outcome.citations
+            risk_level = knowledge_outcome.risk_level
+            next_action = knowledge_outcome.next_action
+            needs_human_approval = knowledge_outcome.needs_human_approval
+            cache_hit = knowledge_outcome.cache_hit
+            rag_retrieval = knowledge_outcome.rag_retrieval
+            rag_rerank = knowledge_outcome.rag_rerank
         elif intent == "return_request":
-            # Workflow 路线:签收后退货.先查订单,再跑 LangGraph 工作流判断资格
-            if clarification:
-                answer = clarification.message
-                risk_level = "high"
-                next_action = "ask_clarification"
-                needs_human_approval = False
-            else:
-                hooks.pre_tool_call("get_order_detail", {"order_id": order_id}, request.runtime_user_id)
-                trace_store.add(
-                    request.session_id,
-                    "tool_started",
-                    {"session_id": request.session_id, "tool_name": "get_order_detail", "order_id": order_id},
-                )
-                order, detail_call = get_order_detail(order_id, request.runtime_user_id, request.runtime_context)
-                hooks.post_tool_call(detail_call)
-                tool_calls.append(detail_call)
-                trace_store.add(
-                    request.session_id,
-                    "tool_finished",
-                    {
-                        "session_id": request.session_id,
-                        "tool_name": detail_call.tool_name,
-                        "order_id": order_id,
-                        "status": detail_call.status,
-                        "risk_level": detail_call.risk_level,
-                    },
-                )
-                if order is None:
-                    answer = detail_call.output_summary
-                    risk_level = "high"
-                    next_action = "transfer_to_human"
-                    needs_human_approval = False
-                else:
-                    verified_order_id = order_no(order)
-                    return_reason = extract_return_reason(request.user_message)
-                    citations.append(RETURN_POLICY)
-                    trace_store.add(
-                        request.session_id,
-                        "rag_pre_retrieved",
-                        {
-                            "session_id": request.session_id,
-                            "hit_count": 1,
-                            "retrieval_stage": "pre_retrieval",
-                            "policy_id": "return_after_delivery",
-                        },
-                    )
-                    workflow = RECEIVED_RETURN_GRAPH.run(order, return_reason=return_reason, citations=citations)
-                    eligible = workflow["eligibility_status"] == "eligible_for_application"
-                    reason_labels = {
-                        "order_not_received": "订单尚未签收",
-                        "product_not_returnable": "商品不支持无理由退货",
-                        "product_returnability_unknown": "暂未核实商品可退属性",
-                        "signed_time_missing": "缺少可信签收时间",
-                        "signed_time_in_future": "签收时间晚于当前业务日期，需要核实",
-                        "return_window_expired": "签收已超过 7 天",
-                        "return_reason_missing": "还需要补充明确的退货原因",
-                    }
-                    answer = (
-                        f"订单 {order_no(order)} 已根据跨境电商公司签收后退货 SOP，完成签收时间、商品可退属性、退货原因和七天窗口检查，可以准备退货申请；当前还不是退货成功，仍需人工复核。"
-                        if eligible
-                        else f"订单 {order_no(order)} 暂不满足签收后退货条件：{reason_labels.get(workflow['eligibility_reason'], workflow['eligibility_reason'])}。"
-                    )
-                    risk_level = "high"
-                    next_action = "transfer_to_human" if eligible else "answer_user"
-                    needs_human_approval = eligible
-                    trace_store.add(request.session_id, "received_return_workflow_completed", {"session_id": request.session_id, **workflow})
+            return_outcome = handle_return(
+                request=request,
+                clarification=clarification,
+                order_id=order_id,
+                hooks=hooks,
+                citations=citations,
+                tool_calls=tool_calls,
+            )
+            answer = return_outcome.answer
+            risk_level = return_outcome.risk_level
+            next_action = return_outcome.next_action
+            needs_human_approval = return_outcome.needs_human_approval
+            workflow = return_outcome.workflow
+            verified_order_id = return_outcome.verified_order_id
         elif intent in {"order_query", "refund_status_query", "refund_request", "product_query"}:
-            # Tool 路线:需要查真实业务数据(订单/物流/退款/商品),用 LangChain 工具运行器调用
-            tool_result = self.langchain_tool_runner.run(
+            tool_outcome = handle_tool_query(
                 request=request,
                 intent=intent,
-                required_tools=route_plan.required_tools,
+                order_id=order_id,
+                clarification=clarification,
+                route_plan=route_plan,
+                runner=self.langchain_tool_runner,
                 hooks=hooks,
-                expected_order_id=order_id,
-                expected_product_keyword=product_query_keyword(request.user_message) if intent == "product_query" else None,
+                citations=citations,
+                tool_calls=tool_calls,
             )
-            tool_calling_state = tool_result.state
-            tool_agent_prompt_fragments = tool_result.prompt_fragments
-            tool_agent_model_calls = tool_result.model_calls
-            trace_store.add(
-                request.session_id,
-                "langchain_tool_agent_completed",
-                {
-                    "session_id": request.session_id,
-                    "create_agent": tool_calling_state.get("create_agent"),
-                    "selected_tools": tool_calling_state.get("selected_tools", []),
-                    "message_types": tool_calling_state.get("message_types", []),
-                    "fallback_used": tool_calling_state.get("fallback_used"),
-                    "status": "success" if tool_result.executed else "fallback",
-                },
-            )
-            if tool_result.executed:
-                order = tool_result.order
-                tool_calls.extend(tool_result.tool_calls)
-                detail_call = tool_calls[0]
-                for call in tool_result.tool_calls:
-                    trace_store.add(
-                        request.session_id,
-                        "tool_started",
-                        {"session_id": request.session_id, "tool_name": call.tool_name, "order_id": order_id},
-                    )
-                    trace_store.add(
-                        request.session_id,
-                        "tool_finished",
-                        {
-                            "session_id": request.session_id,
-                            "tool_name": call.tool_name,
-                            "order_id": order_id,
-                            "status": call.status,
-                            "risk_level": call.risk_level,
-                            "next_action": call.next_action,
-                        },
-                    )
-            elif clarification is None and intent == "product_query":
-                hooks.pre_tool_call("search_products", {"keyword": request.user_message}, request.runtime_user_id)
-                trace_store.add(
-                    request.session_id,
-                    "tool_started",
-                    {"session_id": request.session_id, "tool_name": "search_products"},
-                )
-                products, product_call = search_products(request.user_message)
-                tool_calls.append(product_call)
-                hooks.post_tool_call(product_call)
-                trace_store.add(
-                    request.session_id,
-                    "tool_finished",
-                    {
-                        "session_id": request.session_id,
-                        "tool_name": product_call.tool_name,
-                        "status": product_call.status,
-                        "risk_level": product_call.risk_level,
-                    },
-                )
-                order = None
-                detail_call = None
-            elif clarification is None:
-                hooks.pre_tool_call("get_order_detail", {"order_id": order_id}, request.runtime_user_id)
-                trace_store.add(
-                    request.session_id,
-                    "tool_started",
-                    {"session_id": request.session_id, "tool_name": "get_order_detail", "order_id": order_id},
-                )
-                order, detail_call = get_order_detail(order_id, request.runtime_user_id, request.runtime_context)
-                tool_calls.append(detail_call)
-                hooks.post_tool_call(detail_call)
-                trace_store.add(
-                    request.session_id,
-                    "tool_finished",
-                    {
-                        "session_id": request.session_id,
-                        "tool_name": detail_call.tool_name,
-                        "order_id": order_id,
-                        "status": detail_call.status,
-                        "risk_level": detail_call.risk_level,
-                        "next_action": detail_call.next_action,
-                    },
-                )
-            else:
-                order = None
-                detail_call = None
-            if order is not None:
-                verified_order_id = order_no(order)
-            if clarification:
-                answer = clarification.message
-                if clarification.candidates:
-                    choices = "；".join(f"{candidate.value}（{candidate.hint}）" for candidate in clarification.candidates)
-                    answer = f"{answer} 当前账号下可选订单：{choices}。"
-                risk_level = "medium"
-                next_action = "ask_clarification"
-                needs_human_approval = False
-            elif intent == "order_query" and order:
-                logistics_call = next((call for call in tool_calls if call.tool_name == "get_order_logistics"), None)
-                if logistics_call is None:
-                    hooks.pre_tool_call("get_order_logistics", {"order_id": order_id}, request.runtime_user_id)
-                    logistics_call = get_order_logistics(order)
-                    tool_calls.append(logistics_call)
-                    hooks.post_tool_call(logistics_call)
-                    trace_store.add(
-                        request.session_id,
-                        "tool_finished",
-                        {
-                            "session_id": request.session_id,
-                            "tool_name": logistics_call.tool_name,
-                            "order_id": order_id,
-                            "status": logistics_call.status,
-                            "risk_level": logistics_call.risk_level,
-                        },
-                    )
-                answer = f"我帮你查到了，订单 {order_no(order)} 目前{order_status_label(order)}，物流状态是{logistics_status_label(order)}。"
-                risk_level = "low"
-                next_action = "answer_user"
-                needs_human_approval = False
-            elif intent == "refund_status_query" and order:
-                status_call = next((call for call in tool_calls if call.tool_name == "get_refund_status"), None)
-                if status_call is None:
-                    hooks.pre_tool_call("get_refund_status", {"order_id": order_id}, request.runtime_user_id)
-                    trace_store.add(
-                        request.session_id,
-                        "tool_started",
-                        {"session_id": request.session_id, "tool_name": "get_refund_status", "order_id": order_id},
-                    )
-                    status_call = get_refund_status(order, request.runtime_user_id)
-                    tool_calls.append(status_call)
-                    hooks.post_tool_call(status_call)
-                    trace_store.add(
-                        request.session_id,
-                        "tool_finished",
-                        {
-                            "session_id": request.session_id,
-                            "tool_name": status_call.tool_name,
-                            "order_id": order_id,
-                            "status": status_call.status,
-                            "risk_level": status_call.risk_level,
-                        },
-                    )
-                answer = status_call.output_summary
-                risk_level = status_call.risk_level
-                next_action = status_call.next_action or "answer_user"
-                needs_human_approval = False
-                if status_call.status == "error":
-                    degraded = True
-                    degradation_reason = status_call.error_type or "refund_status_unavailable"
-            elif intent == "product_query":
-                product_call = next((call for call in tool_calls if call.tool_name == "search_products"), None)
-                if product_call is None:
-                    products, product_call = search_products(request.user_message)
-                    tool_calls.append(product_call)
-                if any(term in request.user_message for term in ["活动", "优惠", "满减", "会员"]):
-                    knowledge_result = promotion_policy_result(request.session_id, request.user_message)
-                    record_trace_events(request.session_id, knowledge_result.trace_events)
-                    citations = knowledge_result.citations
-                    rag_retrieval = knowledge_result.retrieval_debug
-                    rag_rerank = knowledge_result.rerank
-                    policy_answer = (
-                        f"平台通用规则：{knowledge_result.answer} "
-                        "这不代表该规则一定适用于当前商品活动，具体组合以商品页和结算页为准。"
-                        if citations
-                        else "活动规则请以商品页与结算页为准。"
-                    )
-                    answer = f"{product_call.output_summary} {policy_answer}"
-                else:
-                    answer = product_call.output_summary
-                risk_level = "low" if product_call.status == "success" else "medium"
-                next_action = product_call.next_action or "answer_user"
-                needs_human_approval = False
-                if product_call.status == "success":
-                    verified_product_name = str(product_call.arguments.get("product_name") or "") or None
-            elif intent == "refund_request":
-                # 高风险边界:退款只做"资格判断",不执行资金动作,必须过人工审批
-                citations.append(REFUND_POLICY)
-                trace_store.add(
-                    request.session_id,
-                    "rag_pre_retrieved",
-                    {
-                        "session_id": request.session_id,
-                        "hit_count": 1,
-                        "retrieval_stage": "pre_retrieval",
-                        "policy_id": "refund_before_shipping",
-                    },
-                )
-                eligible, eligibility_reason = REFUND_APPROVAL_GRAPH.assess_eligibility(order)
-                if not eligible:
-                    workflow = None
-                    answer = (
-                        "该订单已经发货，不能进入未发货退款审批；请按签收后的退货或售后流程处理。"
-                        if eligibility_reason == "order_already_shipped_or_not_eligible"
-                        else "订单事实或支付状态没有通过退款资格校验，暂不能创建退款审批，请转人工核验。"
-                    )
-                    risk_level = "high"
-                    next_action = "transfer_to_human"
-                    needs_human_approval = False
-                    trace_store.add(
-                        request.session_id,
-                        "refund_eligibility_blocked",
-                        {"session_id": request.session_id, "order_id": order_id, "reason": eligibility_reason, "status": "blocked"},
-                    )
-                else:
-                    workflow = REFUND_APPROVAL_GRAPH.run(
-                        request=request,
-                        order=order,
-                        order_id=order_id,
-                        citations=citations,
-                    )
-                if workflow is None:
-                    pass
-                else:
-                    for node_name in workflow.get("node_history", []):
-                        trace_store.add(
-                            request.session_id,
-                            "workflow_node_finished",
-                            {
-                                "session_id": request.session_id,
-                                "workflow_id": workflow["workflow_id"],
-                                "graph_name": workflow.get("graph_name"),
-                                "node_name": node_name,
-                                "status": "completed",
-                            },
-                        )
-                    trace_store.add(
-                        request.session_id,
-                        "workflow_completed",
-                        {
-                            "session_id": request.session_id,
-                            **workflow,
-                            "risk_level": "high",
-                            "needs_human_approval": True,
-                        },
-                    )
-                    trace_store.add(
-                        request.session_id,
-                        "human_approval_required",
-                        {
-                            "session_id": request.session_id,
-                            "workflow_id": workflow["workflow_id"],
-                            "pending_action": "require_approval",
-                            "risk_level": "high",
-                            "needs_human_approval": True,
-                        },
-                    )
-                    answer = f"{order_no(order)} 可以进入未发货退款申请判断，但资金动作必须等待人工审批。"
-                    risk_level = "high"
-                    next_action = "transfer_to_human"
-                    needs_human_approval = True
-            else:
-                answer = detail_call.output_summary
-                risk_level = "medium"
-                next_action = "ask_clarification" if detail_call.error_type == "missing_order_id" else "transfer_to_human"
-                needs_human_approval = False
+            answer = tool_outcome.answer
+            risk_level = tool_outcome.risk_level
+            next_action = tool_outcome.next_action
+            needs_human_approval = tool_outcome.needs_human_approval
+            degraded = tool_outcome.degraded
+            degradation_reason = tool_outcome.degradation_reason
+            workflow = tool_outcome.workflow
+            verified_order_id = tool_outcome.verified_order_id
+            verified_product_name = tool_outcome.verified_product_name
+            if tool_outcome.citations is not None:
+                citations = tool_outcome.citations
+            rag_retrieval = tool_outcome.rag_retrieval
+            rag_rerank = tool_outcome.rag_rerank
+            tool_calling_state = tool_outcome.tool_calling_state or tool_calling_state
+            tool_agent_prompt_fragments = tool_outcome.tool_agent_prompt_fragments
+            tool_agent_model_calls = tool_outcome.tool_agent_model_calls
         else:
             # 兜底:既不是知识问题也不是业务问题,走通用闲聊回答
             answer = general_chat_answer(request.user_message)
@@ -601,38 +291,12 @@ class AfterSaleAgent:
             needs_human_approval = False
 
         # ============ ⑦ 安全检查(横切能力,包裹在主流程外面)============
-        # Tool/RAG 文本也是外部数据,进入最终模型前必须按来源做污染检查.
-        # 为什么要检查:外部数据(商品描述,订单备注,知识文档)可能被塞进恶意指令,
-        # 直接喂给模型会被"提示注入".这里标记污染并做脱敏/隔离.
-        external_reports: list[dict[str, Any]] = []
-        for call in tool_calls:
-            report = inspect_source("tool_result", call.output_summary)
-            if report["tainted"]:
-                call.output_summary = str(report["sanitized_content"])
-            external_reports.append({key: value for key, value in report.items() if key != "sanitized_content"})
-        for citation in citations:
-            report = inspect_source("rag_document", citation.snippet)
-            if report["tainted"]:
-                citation.snippet = str(report["sanitized_content"])
-            external_reports.append({key: value for key, value in report.items() if key != "sanitized_content"})
-        if external_reports:
-            source_safety = context_report["source_safety"]
-            source_safety["reports"].extend(external_reports)
-            source_safety["tainted"] = source_safety["tainted"] or any(report["tainted"] for report in external_reports)
-            source_safety["tainted_sources"] = sorted(
-                set(source_safety["tainted_sources"])
-                | {report["source"] for report in external_reports if report["tainted"]}
-            )
-            trace_store.add(
-                request.session_id,
-                "context_source_safety_checked",
-                {
-                    "session_id": request.session_id,
-                    "tainted": source_safety["tainted"],
-                    "tainted_sources": source_safety["tainted_sources"],
-                    "source_count": len(source_safety["reports"]),
-                },
-            )
+        sanitize_external_sources(
+            session_id=request.session_id,
+            tool_calls=tool_calls,
+            citations=citations,
+            context_report=context_report,
+        )
 
         if rag_retrieval:
             trace_store.add(
@@ -947,29 +611,6 @@ class AfterSaleAgent:
             },
         )
         return result
-
-    @staticmethod
-    def _apply_route_guard(
-        *,
-        user_message: str,
-        route_result: ModelRouteResult,
-    ) -> ModelRouteResult:
-        """仅让明确边界覆盖模型,宽泛关键词只用于模型不可用时的 fallback.
-
-        这是"规则 guard":模型判断可能有误,但某些输入(如明显的注入攻击,明确的
-        高风险词)必须被规则强制覆盖,不能交给模型决定.
-        """
-        guard_intent = classify_guard_intent(user_message)
-        if guard_intent is None or route_result.intent == guard_intent:
-            return route_result
-        return ModelRouteResult(
-            intent=guard_intent,
-            used_model=route_result.used_model,
-            model_name=route_result.model_name,
-            fallback_reason=f"rule_guard_{guard_intent}",
-            framework=route_result.framework,
-            prompt_fragments=route_result.prompt_fragments,
-        )
 
     def resume(self, request: ChatResumeRequest) -> ChatResumeResponse:
         """恢复暂停的 HITL workflow,具体校验和幂等由 workflow 层负责.
